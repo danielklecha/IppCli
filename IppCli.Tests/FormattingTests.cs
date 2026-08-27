@@ -87,17 +87,12 @@ public class FormattingTests
             }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(response, "Get-Printer-Attributes", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("Get-Printer-Attributes", output);
         Assert.Contains("PrinterAttributes", output);
         Assert.Contains("PrinterName: OfficeLaserJet", output);
@@ -132,17 +127,12 @@ public class FormattingTests
             }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(response, "Get-Jobs", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("Get-Jobs", output);
         Assert.Contains("JobsAttributes", output);
         Assert.Contains("JobId: 5", output);
@@ -166,17 +156,12 @@ public class FormattingTests
             }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(sample, "Sample-Tree", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("Sample-Tree", output);
         Assert.Contains("Title: Test Model", output);
         Assert.Contains("Count: 42", output);
@@ -198,40 +183,26 @@ public class FormattingTests
         };
 
         // 1. Without leafTypes: expands SubA and SubB
-        using (var swWithout = new StringWriter())
-        {
-            var consoleWithout = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.No,
-                ColorSystem = ColorSystemSupport.NoColors,
-                Out = new AnsiConsoleOutput(swWithout)
-            });
+        var consoleWithout = new TestConsole();
+        consoleWithout.Profile.Width = 200;
 
-            ConsoleTreeRenderer.Render(model, "WithoutLeafTypes", null, consoleWithout);
-            var outputWithout = swWithout.ToString();
+        ConsoleTreeRenderer.Render(model, "WithoutLeafTypes", null, consoleWithout);
+        var outputWithout = consoleWithout.Output;
 
-            Assert.Contains("Custom", outputWithout);
-            Assert.Contains("SubA: Hello", outputWithout);
-            Assert.Contains("SubB: 100", outputWithout);
-        }
+        Assert.Contains("Custom", outputWithout);
+        Assert.Contains("SubA: Hello", outputWithout);
+        Assert.Contains("SubB: 100", outputWithout);
 
         // 2. With leafTypes including CustomTypeWithSubproperties: rendered via ToString()
-        using (var swWith = new StringWriter())
-        {
-            var consoleWith = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.No,
-                ColorSystem = ColorSystemSupport.NoColors,
-                Out = new AnsiConsoleOutput(swWith)
-            });
+        var consoleWith = new TestConsole();
+        consoleWith.Profile.Width = 200;
 
-            ConsoleTreeRenderer.Render(model, "WithLeafTypes", new[] { typeof(CustomTypeWithSubproperties) }, consoleWith);
-            var outputWith = swWith.ToString();
+        ConsoleTreeRenderer.Render(model, "WithLeafTypes", new[] { typeof(CustomTypeWithSubproperties) }, consoleWith);
+        var outputWith = consoleWith.Output;
 
-            Assert.Contains("Custom: [CustomType: Hello-100]", outputWith);
-            Assert.DoesNotContain("SubA: Hello", outputWith);
-            Assert.DoesNotContain("SubB: 100", outputWith);
-        }
+        Assert.Contains("Custom: [CustomType: Hello-100]", outputWith);
+        Assert.DoesNotContain("SubA: Hello", outputWith);
+        Assert.DoesNotContain("SubB: 100", outputWith);
     }
 
     [Fact]
@@ -243,17 +214,12 @@ public class FormattingTests
             Version = new IppVersion(2, 1)
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(model, "VersionTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("Version: 2.1", output);
         // IppVersion should not be expanded to Major/Minor
         Assert.DoesNotContain("Major:", output);
@@ -267,35 +233,25 @@ public class FormattingTests
         var nodeB = new CircularNode { Name = "NodeB", Next = nodeA };
         nodeA.Next = nodeB;
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         var ex = Record.Exception(() => ConsoleTreeRenderer.Render(nodeA, "CircularTest", null, console));
         Assert.Null(ex);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("circular reference", output);
     }
 
     [Fact]
     public void ConsoleTreeRenderer_HandlesNullObjectGracefully()
     {
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render<SampleModel>(null, "NullTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("NullTest", output);
         Assert.Contains("null", output);
     }
@@ -331,18 +287,13 @@ public class FormattingTests
             EmptyArray = Array.Empty<int>()
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         var ex = Record.Exception(() => ConsoleTreeRenderer.Render(model, "EmptyCollectionTest", null, console));
         Assert.Null(ex);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("EmptyList: []", output);
         Assert.Contains("EmptyArray: []", output);
     }
@@ -394,17 +345,12 @@ public class FormattingTests
             CustomWithValue = new TestNoValueClass(true, "Actual Value")
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(model, "NoValueTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("HoldUntil: no value", output);
         Assert.Contains("HoldUntilValid: indefinite", output);
         Assert.Contains("ResolutionNoVal: no value", output);
@@ -418,17 +364,12 @@ public class FormattingTests
     {
         var root = new TestNoValueClass(false, "Secret");
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(root, "RootNoValueTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("no value", output);
         Assert.DoesNotContain("Secret", output);
     }
@@ -447,17 +388,12 @@ public class FormattingTests
             }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(model, "CollectionNoValueTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("Items (4): no value, no value, no value, indefinite", output);
     }
 
@@ -471,17 +407,12 @@ public class FormattingTests
             PrinterStateReasons = new[] { "none" }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(model, "InlineCollectionTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("DocumentFormatSupported (3): application/pdf, image/urf, image/jpeg", output);
         Assert.Contains("SidesSupported (2): one-sided, two-sided-long-edge", output);
         Assert.Contains("PrinterStateReasons (1): none", output);
@@ -500,17 +431,12 @@ public class FormattingTests
             }
         };
 
-        using var sw = new StringWriter();
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
-            Out = new AnsiConsoleOutput(sw)
-        });
+        var console = new TestConsole();
+        console.Profile.Width = 200;
 
         ConsoleTreeRenderer.Render(model, "ComplexCollectionTest", null, console);
 
-        var output = sw.ToString();
+        var output = console.Output;
         Assert.Contains("MediaColReady (2)", output);
         Assert.Contains("[0]", output);
         Assert.Contains("[1]", output);
