@@ -75,8 +75,11 @@ public class ConsoleTreeRenderer : IOutputRenderer
             {
                 Ansi = AnsiSupport.No,
                 ColorSystem = ColorSystemSupport.NoColors,
-                Out = new AnsiConsoleOutput(writer)
+                Out = new AnsiConsoleOutput(writer),
+                Interactive = InteractionSupport.No
             });
+            fileConsole.Profile.Capabilities.Ansi = false;
+            fileConsole.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
             fileConsole.Profile.Width = 200;
             fileConsole.Write(tree);
             return;
