@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ipp-cli</AssemblyName>
+    <RootNamespace>IppCli</RootNamespace>
+    
+    <!-- .NET Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>ipp-cli</ToolCommandName>
+	<Product>IppCli</Product>
+    <PackageId>IppCli</PackageId>
+    <Version>1.0.0</Version>
+	<PackageProjectUrl>https://github.com/danielklecha/IppCli</PackageProjectUrl>
+    <Authors>Daniel Klecha</Authors>
+    <Description>Command-line tool to send Internet Printing Protocol (IPP) operations to printers using SharpIppNext.</Description>
+    <PackageTags>ipp;printing;printer;cups;cli;tool;sharpipp</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <PackageIcon>icon.png</PackageIcon>
+    <Copyright>Daniel Klecha</Copyright>
+    <RepositoryUrl>https://github.com/danielklecha/IppCli.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpIppNext" Version="4.2.2" />
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IppCli.Generators\IppCli.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="IppCli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="IppCli.Models" />
+    <Using Include="IppCli.Services" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+    <None Include="..\icon.png">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
+

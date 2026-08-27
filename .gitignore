@@ -1,0 +1,26 @@
+## .NET Core / C#
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.tmp
+nupkg/
+*.nupkg
+
+
+## Visual Studio / VS Code / JetBrains Rider
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+## Logs & test results
+TestResults/
+*.log
+*.trx
+
+## Antigravity / Agent
+.gemini/

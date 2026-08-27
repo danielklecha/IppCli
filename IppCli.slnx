@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="IppCli/IppCli.csproj" />
+  <Project Path="IppCli.Generators/IppCli.Generators.csproj" />
+  <Project Path="IppCli.Tests/IppCli.Tests.csproj" />
+</Solution>
