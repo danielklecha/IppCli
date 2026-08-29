@@ -723,7 +723,7 @@ namespace IppCli.Attributes
         }
         else
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} != null ? string.Join(\",\", {targetPropertyName}.{GetSafePath(container)}.{propName}.Select(x => x.ToString())) : _{csharpPropName.ToLowerInvariant()};");
+            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} != null ? string.Join(\",\", {targetPropertyName}.{container}.{propName}!.Select(x => x.ToString())) : _{csharpPropName.ToLowerInvariant()};");
             sb.AppendLine($"{indent}    set");
             sb.AppendLine($"{indent}    {{");
             sb.AppendLine($"{indent}        _{csharpPropName.ToLowerInvariant()} = value;");
