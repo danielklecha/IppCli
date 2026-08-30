@@ -4,7 +4,6 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <AssemblyName>ipp-cli</AssemblyName>
     <RootNamespace>IppCli</RootNamespace>
     
@@ -27,13 +26,12 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SharpIppNext" Version="4.2.2" />
-    <PackageReference Include="Spectre.Console" Version="0.57.2" />
-    <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
+    <PackageReference Include="SharpIppNext" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Console.Cli" />
   </ItemGroup>
 
   <ItemGroup>

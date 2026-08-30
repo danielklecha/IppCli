@@ -1,5 +1,9 @@
 <Solution>
-  <Project Path="IppCli/IppCli.csproj" />
+  <Folder Name="/Solution files/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
   <Project Path="IppCli.Generators/IppCli.Generators.csproj" />
   <Project Path="IppCli.Tests/IppCli.Tests.csproj" />
+  <Project Path="IppCli/IppCli.csproj" />
 </Solution>

@@ -100,7 +100,6 @@ namespace IppCli.Attributes
 }
 ";
 
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // 1. Post-initialization: emit the marker attribute
@@ -116,28 +115,24 @@ namespace IppCli.Attributes
                 transform: static (ctx, _) => GetClassSemanticTarget(ctx))
             .Where(static target => target != null);
 
-        // 3. Combine with compilation
-        var compilationAndClasses = context.CompilationProvider.Combine(classDeclarations.Collect());
-
-        // 4. Generate source for each target
-        context.RegisterSourceOutput(compilationAndClasses, static (spc, source) =>
+        // 3. Generate source and report diagnostics for each target
+        context.RegisterSourceOutput(classDeclarations, static (spc, target) =>
         {
-            var (compilation, targets) = source;
-            var processed = new HashSet<string>();
+            if (target == null) return;
+            var info = target.Value;
 
-            foreach (var target in targets)
+            foreach (var diagnostic in info.Diagnostics)
             {
-                if (target == null) continue;
-                var (classSymbol, requestTypeSymbol, propertyName, maxNestingDepth) = target.Value;
+                spc.ReportDiagnostic(diagnostic);
+            }
 
-                var key = classSymbol.ToDisplayString();
-                if (!processed.Add(key)) continue;
-
-                var generatedCode = GenerateSettingsSource(classSymbol, requestTypeSymbol, propertyName, maxNestingDepth);
+            if (info.IsPartial && info.RequestTypeSymbol != null && info.MaxNestingDepth >= 0)
+            {
+                var generatedCode = GenerateSettingsSource(info.ClassSymbol, info.RequestTypeSymbol, info.PropertyName, info.MaxNestingDepth, spc);
                 if (!string.IsNullOrEmpty(generatedCode))
                 {
-                    var parentName = classSymbol.ContainingType != null ? $"{classSymbol.ContainingType.Name}_" : "";
-                    var fileName = $"{parentName}{classSymbol.Name}.g.cs";
+                    var parentName = info.ClassSymbol.ContainingType != null ? $"{info.ClassSymbol.ContainingType.Name}_" : "";
+                    var fileName = $"{parentName}{info.ClassSymbol.Name}.g.cs";
                     spc.AddSource(fileName, SourceText.From(generatedCode, Encoding.UTF8));
                 }
             }
@@ -147,13 +142,10 @@ namespace IppCli.Attributes
     private static bool IsCandidateClass(SyntaxNode node)
     {
         if (node is not ClassDeclarationSyntax cds) return false;
-        if (!cds.Modifiers.Any(SyntaxKind.PartialKeyword)) return false;
-
-        // Must have at least one attribute
         return cds.AttributeLists.Count > 0;
     }
 
-    private static (INamedTypeSymbol ClassSymbol, INamedTypeSymbol RequestTypeSymbol, string PropertyName, int MaxNestingDepth)? GetClassSemanticTarget(GeneratorSyntaxContext ctx)
+    private static TargetInfo? GetClassSemanticTarget(GeneratorSyntaxContext ctx)
     {
         var classDeclaration = (ClassDeclarationSyntax)ctx.Node;
         if (ctx.SemanticModel.GetDeclaredSymbol(classDeclaration) is not INamedTypeSymbol classSymbol)
@@ -166,6 +158,18 @@ namespace IppCli.Attributes
         {
             if (attr.AttributeClass?.Name is "GenerateCliSettingsAttribute" or "GenerateCliSettings")
             {
+                var isPartial = classDeclaration.Modifiers.Any(SyntaxKind.PartialKeyword);
+                var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+                var classLocation = classDeclaration.Identifier.GetLocation();
+
+                if (!isPartial)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        DiagnosticDescriptors.ClassMustBePartial,
+                        classLocation,
+                        classSymbol.Name));
+                }
+
                 var propName = "Request";
                 var maxNestingDepth = DefaultMaxNestingDepth;
 
@@ -191,11 +195,39 @@ namespace IppCli.Attributes
                     }
                 }
 
-                var propSymbol = FindProperty(classSymbol, propName);
-                if (propSymbol?.Type is INamedTypeSymbol reqSymbol)
+                if (maxNestingDepth < 0)
                 {
-                    return (classSymbol, reqSymbol, propName, maxNestingDepth);
+                    var attrLocation = attr.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? classLocation;
+                    diagnostics.Add(Diagnostic.Create(
+                        DiagnosticDescriptors.InvalidMaxNestingDepth,
+                        attrLocation,
+                        maxNestingDepth,
+                        classSymbol.Name));
                 }
+
+                var propSymbol = FindProperty(classSymbol, propName);
+                INamedTypeSymbol? reqSymbol = null;
+                if (propSymbol?.Type is INamedTypeSymbol foundReqSymbol)
+                {
+                    reqSymbol = foundReqSymbol;
+                }
+                else
+                {
+                    var attrLocation = attr.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? classLocation;
+                    diagnostics.Add(Diagnostic.Create(
+                        DiagnosticDescriptors.PropertyNotFound,
+                        attrLocation,
+                        propName,
+                        classSymbol.Name));
+                }
+
+                return new TargetInfo(
+                    classSymbol,
+                    reqSymbol,
+                    propName,
+                    maxNestingDepth,
+                    isPartial,
+                    diagnostics.ToImmutable());
             }
         }
 
@@ -246,7 +278,12 @@ namespace IppCli.Attributes
         return list;
     }
 
-    private static string GenerateSettingsSource(INamedTypeSymbol classSymbol, INamedTypeSymbol requestTypeSymbol, string propertyName, int maxNestingDepth)
+    private static string GenerateSettingsSource(
+        INamedTypeSymbol classSymbol,
+        INamedTypeSymbol requestTypeSymbol,
+        string propertyName,
+        int maxNestingDepth,
+        SourceProductionContext spc)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// <auto-generated/>");
@@ -321,11 +358,11 @@ namespace IppCli.Attributes
                 sb.AppendLine($"{bodyIndent}// ==========================================================");
                 sb.AppendLine($"{bodyIndent}// {sectionTitle} ({cliPrefix}*)");
                 sb.AppendLine($"{bodyIndent}// ==========================================================");
-                GenerateNestedAttributes(sb, bodyIndent, member.Name, propPrefix, acronym, jsonCliOption, attrType, propertyName, maxNestingDepth);
+                GenerateNestedAttributes(sb, bodyIndent, member.Name, propPrefix, acronym, jsonCliOption, attrType, propertyName, maxNestingDepth, spc, classSymbol);
             }
             else
             {
-                GenerateProperty(sb, bodyIndent, containerPropertyName: null, propPrefix: "", cliSegments: Array.Empty<string>(), member, propertyName, depth: 0, maxNestingDepth: maxNestingDepth);
+                GenerateProperty(sb, bodyIndent, containerPropertyName: null, propPrefix: "", cliSegments: Array.Empty<string>(), member, propertyName, depth: 0, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
             }
         }
 
@@ -351,7 +388,9 @@ namespace IppCli.Attributes
         string jsonCliOption,
         INamedTypeSymbol attrType,
         string targetPropertyName,
-        int maxNestingDepth)
+        int maxNestingDepth,
+        SourceProductionContext spc,
+        INamedTypeSymbol classSymbol)
     {
         GenerateContainerJsonOption(sb, indent, containerPropertyName, propPrefix, jsonCliOption, attrType, targetPropertyName);
 
@@ -359,7 +398,7 @@ namespace IppCli.Attributes
 
         foreach (var prop in properties)
         {
-            GenerateProperty(sb, indent, containerPropertyName, propPrefix, new[] { acronym }, prop, targetPropertyName, depth: 1, maxNestingDepth: maxNestingDepth);
+            GenerateProperty(sb, indent, containerPropertyName, propPrefix, new[] { acronym }, prop, targetPropertyName, depth: 1, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
         }
     }
 
@@ -371,8 +410,10 @@ namespace IppCli.Attributes
         IReadOnlyList<string> cliSegments,
         IPropertySymbol prop,
         string targetPropertyName,
-        int depth = 0,
-        int maxNestingDepth = DefaultMaxNestingDepth)
+        int depth,
+        int maxNestingDepth,
+        SourceProductionContext spc,
+        INamedTypeSymbol classSymbol)
     {
         var propName = prop.Name;
         var csharpPropName = $"{propPrefix}{propName}";
@@ -450,13 +491,13 @@ namespace IppCli.Attributes
             var rangeDesc = $"Range value (e.g. 1-100 or 5) for {propName}";
             GenerateRangeProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, rangeDesc);
         }
-        else if (IsIppCollection(unwrappedType) || IsComplexType(unwrappedType))
+        else if (IsIppCollection(unwrappedType) || IsComplexType(unwrappedType) || IsCollectionOrDictionary(unwrappedType))
         {
             var collOptName = BuildOptionAliases(cliSegments, kebabName, "<JSON>");
             var collDesc = $"JSON string or @file.json for {propName}";
             GenerateComplexProperty(sb, indent, containerPropertyName, csharpPropName, collOptName, propName, unwrappedType, targetPropertyName, collDesc);
 
-            if (depth < maxNestingDepth && unwrappedType is INamedTypeSymbol complexNamedType)
+            if (!IsCollectionOrDictionary(unwrappedType) && depth < maxNestingDepth && unwrappedType is INamedTypeSymbol complexNamedType)
             {
                 var subProperties = GetAllProperties(complexNamedType);
                 var nextContainer = string.IsNullOrEmpty(containerPropertyName) ? propName : $"{containerPropertyName}.{propName}";
@@ -465,7 +506,7 @@ namespace IppCli.Attributes
 
                 foreach (var subProp in subProperties)
                 {
-                    GenerateProperty(sb, indent, nextContainer, nextPropPrefix, nextSegments, subProp, targetPropertyName, depth + 1, maxNestingDepth);
+                    GenerateProperty(sb, indent, nextContainer, nextPropPrefix, nextSegments, subProp, targetPropertyName, depth + 1, maxNestingDepth, spc, classSymbol);
                 }
             }
         }
@@ -473,6 +514,14 @@ namespace IppCli.Attributes
         {
             var fbDesc = $"Value for {propName}";
             GenerateFallbackProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, prop.Type, targetPropertyName, fbDesc);
+
+            var propLocation = prop.Locations.FirstOrDefault() ?? Location.None;
+            spc.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.UnmappedPropertyFallback,
+                propLocation,
+                propName,
+                classSymbol.Name,
+                prop.Type.ToDisplayString()));
         }
     }
 
@@ -534,7 +583,7 @@ namespace IppCli.Attributes
         var fieldName = $"_{csharpPropName.Substring(0, 1).ToLowerInvariant()}{csharpPropName.Substring(1)}";
         sb.AppendLine($"{indent}private string? {fieldName};");
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         sb.AppendLine($"{indent}    get => {fieldName};");
@@ -554,7 +603,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -596,7 +645,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -639,7 +688,7 @@ namespace IppCli.Attributes
     {
         var typeName = type.ToDisplayString();
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {typeName}? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -685,7 +734,7 @@ namespace IppCli.Attributes
 
         sb.AppendLine($"{indent}private string? _{csharpPropName.ToLowerInvariant()};");
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -775,7 +824,7 @@ namespace IppCli.Attributes
         var enumTypeName = enumType.ToDisplayString();
 
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {enumTypeName}? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -816,7 +865,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public bool {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -851,7 +900,7 @@ namespace IppCli.Attributes
         var typeName = (string.IsNullOrEmpty(container) && !isNullable) ? "int" : "int?";
 
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {typeName} {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -886,7 +935,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -918,7 +967,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public DateTimeOffset? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -960,7 +1009,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -1004,7 +1053,7 @@ namespace IppCli.Attributes
 
         sb.AppendLine($"{indent}private string? {fieldName};");
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
 
@@ -1134,7 +1183,7 @@ namespace IppCli.Attributes
 
         sb.AppendLine($"{indent}private string? {fieldName};");
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -1188,7 +1237,7 @@ namespace IppCli.Attributes
 
         sb.AppendLine($"{indent}private string? _{csharpPropName.ToLowerInvariant()};");
         sb.AppendLine($"{indent}[CommandOption(\"{cliOption}\")]");
-        sb.AppendLine($"{indent}[Description(\"JSON string or @file.json for {containerPropertyName}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"JSON string or @file.json for {containerPropertyName}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         sb.AppendLine($"{indent}    get => {targetPropertyName}.{containerPropertyName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{containerPropertyName}) : _{csharpPropName.ToLowerInvariant()};");
@@ -1278,7 +1327,7 @@ namespace IppCli.Attributes
         string description)
     {
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
-        sb.AppendLine($"{indent}[Description(\"{description}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
         if (string.IsNullOrEmpty(container))
@@ -1313,12 +1362,20 @@ namespace IppCli.Attributes
     private static bool IsComplexType(ITypeSymbol type)
     {
         var unwrapped = GetUnwrappedType(type);
-        if (unwrapped.TypeKind != TypeKind.Class) return false;
+        if (unwrapped.TypeKind != TypeKind.Class && unwrapped.TypeKind != TypeKind.Struct) return false;
         if (unwrapped.SpecialType != SpecialType.None) return false;
         if (unwrapped.TypeKind == TypeKind.Enum) return false;
         if (unwrapped.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IEnumerable" or "ICollection" or "IList" or "IDictionary")) return false;
         if (unwrapped.Name is "Uri" or "IppVersion" or "DateTimeOffset" or "String" or "Int32" or "Boolean" or "Stream" or "Range" or "IdentifyAction" or "DocumentFormat" or "IppStructuredString") return false;
         return true;
+    }
+
+    private static bool IsCollectionOrDictionary(ITypeSymbol type)
+    {
+        var unwrapped = GetUnwrappedType(type);
+        if (unwrapped.SpecialType == SpecialType.System_String) return false;
+        if (unwrapped.TypeKind == TypeKind.Array) return false;
+        return unwrapped.AllInterfaces.Any(i => i.Name is "IEnumerable" or "ICollection" or "IList" or "IDictionary");
     }
 
     private static string ToKebabCase(string value)

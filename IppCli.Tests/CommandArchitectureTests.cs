@@ -1,21 +1,13 @@
 using System.Reflection;
 using SharpIpp.Protocol.Models;
 using Spectre.Console.Cli;
-using Xunit;
-using Xunit.Abstractions;
 
 namespace IppCli.Tests;
 
+[TestClass]
 public class CommandArchitectureTests
 {
-    private readonly ITestOutputHelper _output;
-
-    public CommandArchitectureTests(ITestOutputHelper output)
-    {
-        _output = output;
-    }
-
-    [Fact]
+    [TestMethod]
     public void AllCommands_UseBaseSettingsGeneric()
     {
         var asm = typeof(Program).Assembly;
@@ -23,13 +15,13 @@ public class CommandArchitectureTests
             .Where(t => !t.IsAbstract && typeof(ICommand).IsAssignableFrom(t))
             .ToList();
 
-        Assert.Equal(61, commandTypes.Count);
+        Assert.AreEqual(61, commandTypes.Count);
 
         foreach (var cmd in commandTypes)
         {
             var baseType = cmd.BaseType;
-            Assert.NotNull(baseType);
-            Assert.True(baseType.IsGenericType, $"{cmd.Name} should inherit from AsyncCommand<TSettings>");
+            Assert.IsNotNull(baseType);
+            Assert.IsTrue(baseType.IsGenericType, $"{cmd.Name} should inherit from AsyncCommand<TSettings>");
 
             var settingsType = baseType.GetGenericArguments()[0];
             var settingsBase = settingsType.BaseType;
@@ -45,7 +37,7 @@ public class CommandArchitectureTests
                 settingsBase = settingsBase.BaseType;
             }
 
-            Assert.True(isBaseSettings, $"{settingsType.Name} used in {cmd.Name} should inherit from BaseSettings<TRequest>");
+            Assert.IsTrue(isBaseSettings, $"{settingsType.Name} used in {cmd.Name} should inherit from BaseSettings<TRequest>");
         }
     }
 }

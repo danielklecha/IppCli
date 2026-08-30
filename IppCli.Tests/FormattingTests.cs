@@ -9,13 +9,13 @@ using SharpIpp.Models.Responses;
 using SharpIpp.Protocol;
 using SharpIpp.Protocol.Models;
 using Spectre.Console;
-using Xunit;
 
 namespace IppCli.Tests;
 
+[TestClass]
 public class FormattingTests
 {
-    [Fact]
+    [TestMethod]
     public void JsonOutputRenderer_GetJsonString_ProducesValidIndentedJson()
     {
         var response = new GetPrinterAttributesResponse
@@ -32,18 +32,18 @@ public class FormattingTests
         };
 
         var json = JsonOutputRenderer.ToJsonString(response);
-        Assert.NotNull(json);
-        Assert.Contains("\"statusCode\": \"SuccessfulOk\"", json);
-        Assert.Contains("\"printerName\": \"OfficeLaserJet\"", json);
-        Assert.Contains("\"printerState\": \"Idle\"", json);
+        Assert.IsNotNull(json);
+        StringAssert.Contains(json, "\"statusCode\": \"SuccessfulOk\"");
+        StringAssert.Contains(json, "\"printerName\": \"OfficeLaserJet\"");
+        StringAssert.Contains(json, "\"printerState\": \"Idle\"");
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("SuccessfulOk", doc.RootElement.GetProperty("statusCode").GetString());
+        Assert.AreEqual("SuccessfulOk", doc.RootElement.GetProperty("statusCode").GetString());
     }
 
-    [Theory]
-    [InlineData(OutputFormat.Tree)]
-    [InlineData(OutputFormat.Json)]
+    [TestMethod]
+    [DataRow(OutputFormat.Tree)]
+    [DataRow(OutputFormat.Json)]
     public void OutputFormatter_FormatResponse_ExecutesWithoutError(OutputFormat format)
     {
         var response = new PausePrinterResponse
@@ -53,21 +53,20 @@ public class FormattingTests
             StatusCode = IppStatusCode.SuccessfulOk
         };
 
-        var exception = Record.Exception(() => OutputFormatter.FormatResponse("Pause-Printer", response, format));
-        Assert.Null(exception);
+        OutputFormatter.FormatResponse("Pause-Printer", response, format);
     }
 
-    [Theory]
-    [InlineData(OutputFormat.Tree, typeof(ConsoleTreeRenderer))]
-    [InlineData(OutputFormat.Json, typeof(JsonOutputRenderer))]
+    [TestMethod]
+    [DataRow(OutputFormat.Tree, typeof(ConsoleTreeRenderer))]
+    [DataRow(OutputFormat.Json, typeof(JsonOutputRenderer))]
     public void OutputFormatter_GetRenderer_ReturnsExpectedRendererType(OutputFormat format, Type expectedType)
     {
         var renderer = OutputFormatter.GetRenderer(format);
-        Assert.NotNull(renderer);
-        Assert.IsType(expectedType, renderer);
+        Assert.IsNotNull(renderer);
+        Assert.IsInstanceOfType(renderer, expectedType);
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_CreateTree_RendersResponseProperties()
     {
         var response = new GetPrinterAttributesResponse
@@ -93,19 +92,19 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(response, "Get-Printer-Attributes", null, console);
 
         var output = console.Output;
-        Assert.Contains("Get-Printer-Attributes", output);
-        Assert.Contains("PrinterAttributes", output);
-        Assert.Contains("PrinterName: OfficeLaserJet", output);
-        Assert.Contains("PrinterState: Idle", output);
-        Assert.Contains("PrinterIsAcceptingJobs: true", output);
-        Assert.Contains("OperationAttributes", output);
-        Assert.Contains("AttributesCharset: utf-8", output);
-        Assert.Contains("RequestId: 42", output);
-        Assert.Contains("StatusCode: SuccessfulOk", output);
-        Assert.Contains("Version: 2.0", output);
+        StringAssert.Contains(output, "Get-Printer-Attributes");
+        StringAssert.Contains(output, "PrinterAttributes");
+        StringAssert.Contains(output, "PrinterName: OfficeLaserJet");
+        StringAssert.Contains(output, "PrinterState: Idle");
+        StringAssert.Contains(output, "PrinterIsAcceptingJobs: true");
+        StringAssert.Contains(output, "OperationAttributes");
+        StringAssert.Contains(output, "AttributesCharset: utf-8");
+        StringAssert.Contains(output, "RequestId: 42");
+        StringAssert.Contains(output, "StatusCode: SuccessfulOk");
+        StringAssert.Contains(output, "Version: 2.0");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_CreateTree_RendersJobsCollection()
     {
         var response = new GetJobsResponse
@@ -133,16 +132,16 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(response, "Get-Jobs", null, console);
 
         var output = console.Output;
-        Assert.Contains("Get-Jobs", output);
-        Assert.Contains("JobsAttributes", output);
-        Assert.Contains("JobId: 5", output);
-        Assert.Contains("JobName: Report.pdf", output);
-        Assert.Contains("JobState: Completed", output);
-        Assert.Contains("JobOriginatingUserName: bob", output);
-        Assert.Contains("JobMediaSheetsCompleted: 10", output);
+        StringAssert.Contains(output, "Get-Jobs");
+        StringAssert.Contains(output, "JobsAttributes");
+        StringAssert.Contains(output, "JobId: 5");
+        StringAssert.Contains(output, "JobName: Report.pdf");
+        StringAssert.Contains(output, "JobState: Completed");
+        StringAssert.Contains(output, "JobOriginatingUserName: bob");
+        StringAssert.Contains(output, "JobMediaSheetsCompleted: 10");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_CreateTree_GenericMethod_RendersAnyObject()
     {
         var sample = new SampleModel
@@ -162,17 +161,17 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(sample, "Sample-Tree", null, console);
 
         var output = console.Output;
-        Assert.Contains("Sample-Tree", output);
-        Assert.Contains("Title: Test Model", output);
-        Assert.Contains("Count: 42", output);
-        Assert.Contains("Nested", output);
-        Assert.Contains("Description: Deeply nested", output);
-        Assert.Contains("Tags", output);
-        Assert.Contains("tag1", output);
-        Assert.Contains("tag2", output);
+        StringAssert.Contains(output, "Sample-Tree");
+        StringAssert.Contains(output, "Title: Test Model");
+        StringAssert.Contains(output, "Count: 42");
+        StringAssert.Contains(output, "Nested");
+        StringAssert.Contains(output, "Description: Deeply nested");
+        StringAssert.Contains(output, "Tags");
+        StringAssert.Contains(output, "tag1");
+        StringAssert.Contains(output, "tag2");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_LeafTypesParameter_DisplaysUsingToStringWithoutExpandingSubproperties()
     {
         // CustomTypeWithSubproperties has properties SubA and SubB
@@ -189,9 +188,9 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "WithoutLeafTypes", null, consoleWithout);
         var outputWithout = consoleWithout.Output;
 
-        Assert.Contains("Custom", outputWithout);
-        Assert.Contains("SubA: Hello", outputWithout);
-        Assert.Contains("SubB: 100", outputWithout);
+        StringAssert.Contains(outputWithout, "Custom");
+        StringAssert.Contains(outputWithout, "SubA: Hello");
+        StringAssert.Contains(outputWithout, "SubB: 100");
 
         // 2. With leafTypes including CustomTypeWithSubproperties: rendered via ToString()
         var consoleWith = new TestConsole();
@@ -200,12 +199,12 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "WithLeafTypes", new[] { typeof(CustomTypeWithSubproperties) }, consoleWith);
         var outputWith = consoleWith.Output;
 
-        Assert.Contains("Custom: [CustomType: Hello-100]", outputWith);
-        Assert.DoesNotContain("SubA: Hello", outputWith);
-        Assert.DoesNotContain("SubB: 100", outputWith);
+        StringAssert.Contains(outputWith, "Custom: [CustomType: Hello-100]");
+        Assert.IsFalse(outputWith.Contains("SubA: Hello"));
+        Assert.IsFalse(outputWith.Contains("SubB: 100"));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_IppVersion_TreatedAsLeafByDefault()
     {
         var model = new
@@ -220,13 +219,13 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "VersionTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("Version: 2.1", output);
+        StringAssert.Contains(output, "Version: 2.1");
         // IppVersion should not be expanded to Major/Minor
-        Assert.DoesNotContain("Major:", output);
-        Assert.DoesNotContain("Minor:", output);
+        Assert.IsFalse(output.Contains("Major:"));
+        Assert.IsFalse(output.Contains("Minor:"));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_HandlesCircularReferenceGracefully()
     {
         var nodeA = new CircularNode { Name = "NodeA" };
@@ -236,14 +235,13 @@ public class FormattingTests
         var console = new TestConsole();
         console.Profile.Width = 200;
 
-        var ex = Record.Exception(() => ConsoleTreeRenderer.Render(nodeA, "CircularTest", null, console));
-        Assert.Null(ex);
+        ConsoleTreeRenderer.Render(nodeA, "CircularTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("circular reference", output);
+        StringAssert.Contains(output, "circular reference");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_HandlesNullObjectGracefully()
     {
         var console = new TestConsole();
@@ -252,11 +250,11 @@ public class FormattingTests
         ConsoleTreeRenderer.Render<SampleModel>(null, "NullTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("NullTest", output);
-        Assert.Contains("null", output);
+        StringAssert.Contains(output, "NullTest");
+        StringAssert.Contains(output, "null");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_RenderResponse_ViaStringWriter_RendersCorrectly()
     {
         var response = new PausePrinterResponse
@@ -271,13 +269,13 @@ public class FormattingTests
         renderer.RenderResponse("Pause-Printer", response, sw);
 
         var output = sw.ToString();
-        Assert.Contains("Pause-Printer", output);
-        Assert.Contains("RequestId: 7", output);
-        Assert.Contains("StatusCode: SuccessfulOk", output);
-        Assert.Contains("Version: 2.0", output);
+        StringAssert.Contains(output, "Pause-Printer");
+        StringAssert.Contains(output, "RequestId: 7");
+        StringAssert.Contains(output, "StatusCode: SuccessfulOk");
+        StringAssert.Contains(output, "Version: 2.0");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_EmptyCollections_RendersWithoutError()
     {
         var model = new
@@ -290,50 +288,49 @@ public class FormattingTests
         var console = new TestConsole();
         console.Profile.Width = 200;
 
-        var ex = Record.Exception(() => ConsoleTreeRenderer.Render(model, "EmptyCollectionTest", null, console));
-        Assert.Null(ex);
+        ConsoleTreeRenderer.Render(model, "EmptyCollectionTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("EmptyList: []", output);
-        Assert.Contains("EmptyArray: []", output);
+        StringAssert.Contains(output, "EmptyList: []");
+        StringAssert.Contains(output, "EmptyArray: []");
     }
 
-    [Fact]
+    [TestMethod]
     public void BaseRenderer_IsComplexType_IdentifiesTypesCorrectly()
     {
-        Assert.False(BaseRenderer.IsComplexType(typeof(int)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(string)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(Uri)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(IppVersion)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(IppStatusCode)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(JobState)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(DateTime)));
-        Assert.False(BaseRenderer.IsComplexType(typeof(byte[])));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(int)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(string)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(Uri)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(IppVersion)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(IppStatusCode)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(JobState)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(DateTime)));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(byte[])));
 
-        Assert.True(BaseRenderer.IsComplexType(typeof(JobDescriptionAttributes)));
-        Assert.True(BaseRenderer.IsComplexType(typeof(TestItem)));
+        Assert.IsTrue(BaseRenderer.IsComplexType(typeof(JobDescriptionAttributes)));
+        Assert.IsTrue(BaseRenderer.IsComplexType(typeof(TestItem)));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_IsLeaf_SmartEnumRecognizedAsLeaf()
     {
         // Types
-        Assert.True(ConsoleTreeRenderer.IsLeaf(typeof(JobState)));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(typeof(JobHoldUntil)));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(typeof(PrinterState)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(JobState)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(JobHoldUntil)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(PrinterState)));
 
         // Instances
-        Assert.True(ConsoleTreeRenderer.IsLeaf(JobState.Completed));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(JobHoldUntil.Indefinite));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(new JobHoldUntil("no-value", false)));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(false, "NoVal")));
-        Assert.False(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(true, "HasVal")));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(null));
-        Assert.True(ConsoleTreeRenderer.IsLeaf("string"));
-        Assert.True(ConsoleTreeRenderer.IsLeaf(123));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(JobState.Completed));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(JobHoldUntil.Indefinite));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(new JobHoldUntil("no-value", false)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(false, "NoVal")));
+        Assert.IsFalse(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(true, "HasVal")));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(null));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf("string"));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(123));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_NoValue_PropertyDisplaysGreyNoValue()
     {
         var model = new
@@ -351,15 +348,15 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "NoValueTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("HoldUntil: no value", output);
-        Assert.Contains("HoldUntilValid: indefinite", output);
-        Assert.Contains("ResolutionNoVal: no value", output);
-        Assert.Contains("CustomNoValue: no value", output);
-        Assert.Contains("CustomWithValue", output);
-        Assert.Contains("Content: Actual Value", output);
+        StringAssert.Contains(output, "HoldUntil: no value");
+        StringAssert.Contains(output, "HoldUntilValid: indefinite");
+        StringAssert.Contains(output, "ResolutionNoVal: no value");
+        StringAssert.Contains(output, "CustomNoValue: no value");
+        StringAssert.Contains(output, "CustomWithValue");
+        StringAssert.Contains(output, "Content: Actual Value");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_NoValue_RootObjectDisplaysGreyNoValue()
     {
         var root = new TestNoValueClass(false, "Secret");
@@ -370,11 +367,11 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(root, "RootNoValueTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("no value", output);
-        Assert.DoesNotContain("Secret", output);
+        StringAssert.Contains(output, "no value");
+        Assert.IsFalse(output.Contains("Secret"));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_NoValue_CollectionDisplaysGreyNoValue()
     {
         var model = new
@@ -394,10 +391,10 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "CollectionNoValueTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("Items (4): no value, no value, no value, indefinite", output);
+        StringAssert.Contains(output, "Items (4): no value, no value, no value, indefinite");
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_InlineCollection_RendersCommaSeparatedWithCount()
     {
         var model = new
@@ -413,13 +410,13 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "InlineCollectionTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("DocumentFormatSupported (3): application/pdf, image/urf, image/jpeg", output);
-        Assert.Contains("SidesSupported (2): one-sided, two-sided-long-edge", output);
-        Assert.Contains("PrinterStateReasons (1): none", output);
-        Assert.DoesNotContain("[0]", output);
+        StringAssert.Contains(output, "DocumentFormatSupported (3): application/pdf, image/urf, image/jpeg");
+        StringAssert.Contains(output, "SidesSupported (2): one-sided, two-sided-long-edge");
+        StringAssert.Contains(output, "PrinterStateReasons (1): none");
+        Assert.IsFalse(output.Contains("[0]"));
     }
 
-    [Fact]
+    [TestMethod]
     public void ConsoleTreeRenderer_ComplexCollection_UsesZeroBasedIndexing()
     {
         var model = new
@@ -437,11 +434,11 @@ public class FormattingTests
         ConsoleTreeRenderer.Render(model, "ComplexCollectionTest", null, console);
 
         var output = console.Output;
-        Assert.Contains("MediaColReady (2)", output);
-        Assert.Contains("[0]", output);
-        Assert.Contains("[1]", output);
-        Assert.Contains("MediaBottomMargin: 432", output);
-        Assert.Contains("MediaBottomMargin: 200", output);
+        StringAssert.Contains(output, "MediaColReady (2)");
+        StringAssert.Contains(output, "[0]");
+        StringAssert.Contains(output, "[1]");
+        StringAssert.Contains(output, "MediaBottomMargin: 432");
+        StringAssert.Contains(output, "MediaBottomMargin: 200");
     }
 
     private class TestNoValueClass : INoValue
