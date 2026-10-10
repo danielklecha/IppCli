@@ -11,7 +11,7 @@ public partial class PrintJobCommand : AsyncCommand<PrintJobCommand.Settings>
     {
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(settings.Document) || !File.Exists(settings.Document))
         {
