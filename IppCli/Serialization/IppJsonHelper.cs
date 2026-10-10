@@ -23,6 +23,9 @@ public static class IppJsonHelper
         options.Converters.Add(new IppVersionJsonConverter());
         options.Converters.Add(new RangeJsonConverter());
         options.Converters.Add(new SharpIppSmartEnumJsonConverterFactory());
+        options.Converters.Add(new IppValueJsonConverterFactory());
+        options.Converters.Add(new StringWithLanguageJsonConverter());
+        options.Converters.Add(new OctetStringJsonConverter());
     }
 
     private static JsonSerializerOptions CreateDefaultOptions()

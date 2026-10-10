@@ -9,7 +9,7 @@ public sealed class SharpIppSmartEnumJsonConverterFactory : JsonConverterFactory
 {
     public override bool CanConvert(Type typeToConvert)
     {
-        return typeof(ISmartEnum).IsAssignableFrom(typeToConvert);
+        return typeof(IKeywordEnum).IsAssignableFrom(typeToConvert);
     }
 
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)

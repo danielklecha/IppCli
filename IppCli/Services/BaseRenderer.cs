@@ -23,10 +23,16 @@ public static partial class BaseRenderer
     {
         var targetType = Nullable.GetUnderlyingType(type) ?? type;
 
+        while (targetType.IsGenericType && (targetType.GetGenericTypeDefinition() == typeof(IppValue<>) || targetType.GetGenericTypeDefinition() == typeof(Nullable<>)))
+        {
+            targetType = targetType.GetGenericArguments()[0];
+            targetType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        }
+
         if (targetType.IsPrimitive || targetType.IsEnum)
             return false;
 
-        if (typeof(ISmartEnum).IsAssignableFrom(targetType))
+        if (typeof(IKeywordEnum).IsAssignableFrom(targetType))
             return false;
 
         if (targetType == typeof(string) ||
@@ -38,7 +44,13 @@ public static partial class BaseRenderer
             targetType == typeof(Uri) ||
             targetType == typeof(IppVersion) ||
             targetType == typeof(IppStatusCode) ||
-            targetType == typeof(byte[]))
+            targetType == typeof(byte[]) ||
+            targetType == typeof(SharpIpp.Protocol.Models.Range) ||
+            targetType == typeof(Resolution) ||
+            targetType == typeof(StringWithLanguage) ||
+            targetType == typeof(OctetString) ||
+            targetType == typeof(IppAttribute) ||
+            typeof(IIppStructuredString).IsAssignableFrom(targetType))
         {
             return false;
         }
@@ -57,9 +69,26 @@ public static partial class BaseRenderer
         if (value == null)
             return "null";
 
+        if (value is INoValue { IsValue: false })
+            return "no value";
+
+        if (value is IIppValue ippVal)
+        {
+            if (!ippVal.IsValue)
+                return "no value";
+            return FormatValue(ippVal.ValueAsObject);
+        }
+
+        if (value is IppAttribute attr)
+        {
+            if (string.IsNullOrEmpty(attr.Name))
+                return $"({attr.Tag}): {attr.Value ?? "null"}";
+            return $"{attr.Name} ({attr.Tag}): {attr.Value ?? "null"}";
+        }
+
         if (value is IEnumerable enumerable and not string and not byte[])
         {
-            var items = enumerable.Cast<object>().Select(x => x?.ToString() ?? "null").ToList();
+            var items = enumerable.Cast<object>().Select(FormatValue).ToList();
             if (items.Count == 0) return "[]";
             return string.Join(", ", items);
         }

@@ -29,8 +29,11 @@ public class ConsoleTreeRenderer : IOutputRenderer
         typeof(IppStatusCode),
         typeof(SharpIpp.Protocol.Models.Range),
         typeof(Resolution),
-        typeof(ISmartEnum),
-        typeof(IIppStructuredString)
+        typeof(IKeywordEnum),
+        typeof(IIppStructuredString),
+        typeof(StringWithLanguage),
+        typeof(OctetString),
+        typeof(IppAttribute)
     ];
 
     public ConsoleTreeRenderer(IAnsiConsole? console = null)
@@ -113,6 +116,24 @@ public class ConsoleTreeRenderer : IOutputRenderer
             return tree;
         }
 
+        if (obj is IIppValue rootIppVal)
+        {
+            if (!rootIppVal.IsValue)
+            {
+                tree.AddNode("[grey]no value[/]");
+                return tree;
+            }
+
+            var inner = rootIppVal.ValueAsObject;
+            if (inner == null)
+            {
+                tree.AddNode("[grey]null[/]");
+                return tree;
+            }
+
+            return CreateTree(inner, rootTitle, leafTypes);
+        }
+
         var customLeafTypesSet = leafTypes != null ? new HashSet<Type>(leafTypes) : null;
         var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
@@ -149,8 +170,23 @@ public class ConsoleTreeRenderer : IOutputRenderer
             return true;
         }
 
+        if (value is IIppValue ippVal)
+        {
+            if (!ippVal.IsValue)
+            {
+                return true;
+            }
+            return IsLeaf(ippVal.ValueAsObject, customLeafTypes);
+        }
+
         var type = value is Type t ? t : value.GetType();
         var targetType = Nullable.GetUnderlyingType(type) ?? type;
+
+        while (targetType.IsGenericType && (targetType.GetGenericTypeDefinition() == typeof(IppValue<>) || targetType.GetGenericTypeDefinition() == typeof(Nullable<>)))
+        {
+            targetType = targetType.GetGenericArguments()[0];
+            targetType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        }
 
         if (customLeafTypes != null && customLeafTypes.Any(t => t.IsAssignableFrom(targetType) || t == targetType))
         {
@@ -179,6 +215,15 @@ public class ConsoleTreeRenderer : IOutputRenderer
             return "[grey]no value[/]";
         }
 
+        if (value is IIppValue ippVal)
+        {
+            if (!ippVal.IsValue)
+            {
+                return "[grey]no value[/]";
+            }
+            return FormatLeafValue(ippVal.ValueAsObject);
+        }
+
         if (value is IppStatusCode statusCode)
         {
             var statusColor = GetStatusColor(statusCode);
@@ -193,6 +238,15 @@ public class ConsoleTreeRenderer : IOutputRenderer
         if (value is byte[] bytes)
         {
             return $"[dim]{bytes.Length} bytes[/]";
+        }
+
+        if (value is IppAttribute attr)
+        {
+            if (string.IsNullOrEmpty(attr.Name))
+            {
+                return $"[dim]({attr.Tag}):[/] {Markup.Escape(attr.Value?.ToString() ?? "null")}";
+            }
+            return $"[bold]{Markup.Escape(attr.Name)}[/] [dim]({attr.Tag}):[/] {Markup.Escape(attr.Value?.ToString() ?? "null")}";
         }
 
         return Markup.Escape(value.ToString() ?? "null");
@@ -224,6 +278,8 @@ public class ConsoleTreeRenderer : IOutputRenderer
         var properties = obj.GetType()
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
+            .GroupBy(p => p.Name)
+            .Select(g => g.First())
             .OrderBy(p => p.Name);
 
         foreach (var prop in properties)
@@ -243,6 +299,25 @@ public class ConsoleTreeRenderer : IOutputRenderer
         HashSet<object> visited,
         int depth)
     {
+        // 0. Unwrap IIppValue
+        if (value is IIppValue ippVal)
+        {
+            if (!ippVal.IsValue)
+            {
+                parentNode.AddNode($"[bold]{Markup.Escape(key)}:[/] [grey]no value[/]");
+                return;
+            }
+
+            var innerValue = ippVal.ValueAsObject;
+            if (innerValue == null)
+            {
+                parentNode.AddNode($"[bold]{Markup.Escape(key)}:[/] [grey]null[/]");
+                return;
+            }
+
+            value = innerValue;
+        }
+
         // 1. Leaf type (including INoValue with IsValue == false)
         if (IsLeaf(value, customLeafTypes))
         {
@@ -253,7 +328,7 @@ public class ConsoleTreeRenderer : IOutputRenderer
         // 2. Dictionary
         if (value is IDictionary dict)
         {
-            var dictNode = parentNode.AddNode($"[bold yellow]{Markup.Escape(key)}[/] [dim]({dict.Count})[/]");
+            var dictNode = parentNode.AddNode($"[bold]{Markup.Escape(key)}[/] [dim]({dict.Count})[/]");
             foreach (DictionaryEntry entry in dict)
             {
                 var entryKey = entry.Key?.ToString() ?? "null";
@@ -279,7 +354,7 @@ public class ConsoleTreeRenderer : IOutputRenderer
                 return;
             }
 
-            var allLeaves = items.All(x => IsLeaf(x, customLeafTypes));
+            var allLeaves = items.All(x => IsLeaf(x, customLeafTypes) && x is not IppAttribute);
             if (allLeaves)
             {
                 var formattedItems = items.Select(FormatLeafValue);
@@ -287,13 +362,37 @@ public class ConsoleTreeRenderer : IOutputRenderer
                 return;
             }
 
-            var listNode = parentNode.AddNode($"[bold yellow]{Markup.Escape(key)}[/] [dim]({items.Count})[/]");
+            var listNode = parentNode.AddNode($"[bold]{Markup.Escape(key)}[/] [dim]({items.Count})[/]");
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i]!;
-                if (IsLeaf(item, customLeafTypes))
+                if (item is IIppValue itemIppVal)
+                {
+                    if (!itemIppVal.IsValue)
+                    {
+                        listNode.AddNode($"[dim][[{i}]][/] [grey]no value[/]");
+                        continue;
+                    }
+                    if (itemIppVal.ValueAsObject == null)
+                    {
+                        listNode.AddNode($"[dim][[{i}]][/] [grey]null[/]");
+                        continue;
+                    }
+                    item = itemIppVal.ValueAsObject;
+                }
+
+                if (item is IppAttribute attr)
+                {
+                    listNode.AddNode(FormatLeafValue(attr));
+                }
+                else if (IsLeaf(item, customLeafTypes))
                 {
                     listNode.AddNode($"[dim][[{i}]][/] {FormatLeafValue(item)}");
+                }
+                else if (item is IEnumerable innerEnumerable and not string and not byte[])
+                {
+                    var itemNode = listNode.AddNode($"[dim][[{i}]][/]");
+                    PopulateEnumerableNodes(itemNode, innerEnumerable, customLeafTypes, visited, depth + 1);
                 }
                 else
                 {
@@ -317,7 +416,7 @@ public class ConsoleTreeRenderer : IOutputRenderer
             return;
         }
 
-        var objNode = parentNode.AddNode($"[bold yellow]{Markup.Escape(key)}[/]");
+        var objNode = parentNode.AddNode($"[bold]{Markup.Escape(key)}[/]");
         PopulateObjectProperties(objNode, value, customLeafTypes, visited, depth + 1);
     }
 
@@ -338,9 +437,33 @@ public class ConsoleTreeRenderer : IOutputRenderer
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i]!;
-            if (IsLeaf(item, customLeafTypes))
+            if (item is IIppValue itemIppVal)
+            {
+                if (!itemIppVal.IsValue)
+                {
+                    parentNode.AddNode($"[dim][[{i}]][/] [grey]no value[/]");
+                    continue;
+                }
+                if (itemIppVal.ValueAsObject == null)
+                {
+                    parentNode.AddNode($"[dim][[{i}]][/] [grey]null[/]");
+                    continue;
+                }
+                item = itemIppVal.ValueAsObject;
+            }
+
+            if (item is IppAttribute attr)
+            {
+                parentNode.AddNode(FormatLeafValue(attr));
+            }
+            else if (IsLeaf(item, customLeafTypes))
             {
                 parentNode.AddNode($"[dim][[{i}]][/] {FormatLeafValue(item)}");
+            }
+            else if (item is IEnumerable innerEnumerable and not string and not byte[])
+            {
+                var itemNode = parentNode.AddNode($"[dim][[{i}]][/]");
+                PopulateEnumerableNodes(itemNode, innerEnumerable, customLeafTypes, visited, depth + 1);
             }
             else
             {

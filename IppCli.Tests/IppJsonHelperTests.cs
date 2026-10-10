@@ -210,4 +210,112 @@ public class IppJsonHelperTests
         Assert.AreEqual(5, parsedNested.JobTemplateAttributes.Copies);
         Assert.AreEqual(30, parsedNested.JobTemplateAttributes.JobPriority);
     }
+
+    [TestMethod]
+    public void OctetString_DeserializesAndSerializesCorrectly()
+    {
+        // 1. String token passes directly to constructor
+        var os1 = IppJsonHelper.Deserialize<OctetString>("\"hello-world\"");
+        Assert.IsTrue(os1.IsValue);
+        Assert.AreEqual("hello-world", os1.ToString());
+
+        // 2. Magic "no-value" string is NOT treated as null/default
+        var osNoValStr = IppJsonHelper.Deserialize<OctetString>("\"no-value\"");
+        Assert.IsTrue(osNoValStr.IsValue);
+        Assert.AreEqual("no-value", osNoValStr.ToString());
+
+        // 3. Null token returns default
+        var osNull = IppJsonHelper.Deserialize<OctetString>("null");
+        Assert.IsFalse(osNull.IsValue);
+
+        // 4. JSON object with value property
+        var osObj = IppJsonHelper.Deserialize<OctetString>("{\"value\": \"test-octet\"}");
+        Assert.IsTrue(osObj.IsValue);
+        Assert.AreEqual("test-octet", osObj.ToString());
+
+        // 5. JSON object with isNoValue: true
+        var osNoValObj = IppJsonHelper.Deserialize<OctetString>("{\"isNoValue\": true}");
+        Assert.IsFalse(osNoValObj.IsValue);
+
+        // 6. JSON object with isValue: false
+        var osIsValFalseObj = IppJsonHelper.Deserialize<OctetString>("{\"isValue\": false}");
+        Assert.IsFalse(osIsValFalseObj.IsValue);
+
+        // 7. JSON object with isNoValue: false and value
+        var osValidObj = IppJsonHelper.Deserialize<OctetString>("{\"isNoValue\": false, \"value\": \"abc\"}");
+        Assert.IsTrue(osValidObj.IsValue);
+        Assert.AreEqual("abc", osValidObj.ToString());
+
+        // 8. Serializing OctetString with value
+        var serialized = IppJsonHelper.Serialize(new OctetString("hello"));
+        Assert.AreEqual("\"hello\"", serialized);
+
+        // 9. Serializing default OctetString produces null
+        var serializedDef = IppJsonHelper.Serialize(default(OctetString));
+        Assert.AreEqual("null", serializedDef);
+    }
+
+    [TestMethod]
+    public void StringWithLanguage_DeserializesAndSerializesCorrectly()
+    {
+        // 1. String token passes directly to constructor
+        var swl1 = IppJsonHelper.Deserialize<StringWithLanguage>("\"my-string\"");
+        Assert.IsTrue(swl1.IsValue);
+        Assert.IsFalse(swl1.HasLanguage);
+        Assert.AreEqual("my-string", swl1.Value);
+
+        // 2. Magic "no-value" string is NOT treated as null/default
+        var swlNoValStr = IppJsonHelper.Deserialize<StringWithLanguage>("\"no-value\"");
+        Assert.IsTrue(swlNoValStr.IsValue);
+        Assert.AreEqual("no-value", swlNoValStr.Value);
+
+        // 3. Null token returns default
+        var swlNull = IppJsonHelper.Deserialize<StringWithLanguage>("null");
+        Assert.IsFalse(swlNull.IsValue);
+
+        // 4. JSON object with language and value
+        var swlObj = IppJsonHelper.Deserialize<StringWithLanguage>("{\"language\": \"en-us\", \"value\": \"greeting\"}");
+        Assert.IsTrue(swlObj.IsValue);
+        Assert.IsTrue(swlObj.HasLanguage);
+        Assert.AreEqual("en-us", swlObj.Language);
+        Assert.AreEqual("greeting", swlObj.Value);
+
+        // 5. JSON object with only value
+        var swlValOnly = IppJsonHelper.Deserialize<StringWithLanguage>("{\"value\": \"plain\"}");
+        Assert.IsTrue(swlValOnly.IsValue);
+        Assert.IsFalse(swlValOnly.HasLanguage);
+        Assert.AreEqual("plain", swlValOnly.Value);
+
+        // 6. JSON object with isNoValue: true
+        var swlNoValObj = IppJsonHelper.Deserialize<StringWithLanguage>("{\"isNoValue\": true}");
+        Assert.IsFalse(swlNoValObj.IsValue);
+
+        // 7. JSON object with isValue: false
+        var swlIsValFalse = IppJsonHelper.Deserialize<StringWithLanguage>("{\"isValue\": false}");
+        Assert.IsFalse(swlIsValFalse.IsValue);
+
+        // 8. JSON object with isNoValue: false and language/value
+        var swlExplicitVal = IppJsonHelper.Deserialize<StringWithLanguage>("{\"isNoValue\": false, \"language\": \"fr\", \"value\": \"bonjour\"}");
+        Assert.IsTrue(swlExplicitVal.IsValue);
+        Assert.IsTrue(swlExplicitVal.HasLanguage);
+        Assert.AreEqual("fr", swlExplicitVal.Language);
+        Assert.AreEqual("bonjour", swlExplicitVal.Value);
+
+        // 9. Alternative property names like "lang" or "naturalLanguage" or "text" are NOT associated
+        var swlAlt = IppJsonHelper.Deserialize<StringWithLanguage>("{\"lang\": \"fr\", \"text\": \"bonjour\"}");
+        Assert.IsFalse(swlAlt.IsValue);
+
+        // 10. Serializing StringWithLanguage with language produces object
+        var serializedWithLang = IppJsonHelper.Serialize(new StringWithLanguage("en", "hello"));
+        StringAssert.Contains(serializedWithLang, "\"language\": \"en\"");
+        StringAssert.Contains(serializedWithLang, "\"value\": \"hello\"");
+
+        // 11. Serializing StringWithLanguage without language produces string
+        var serializedNoLang = IppJsonHelper.Serialize(new StringWithLanguage("hello"));
+        Assert.AreEqual("\"hello\"", serializedNoLang);
+
+        // 12. Serializing default StringWithLanguage produces null
+        var serializedDef = IppJsonHelper.Serialize(default(StringWithLanguage));
+        Assert.AreEqual("null", serializedDef);
+    }
 }

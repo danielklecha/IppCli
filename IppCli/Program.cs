@@ -1,4 +1,5 @@
 using IppCli.Commands;
+using SharpIpp.Exceptions;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -15,14 +16,7 @@ public static class Program
             config.SetApplicationName("ipp-cli");
             config.SetApplicationVersion(typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
 
-            config.SetExceptionHandler((ex, _) =>
-            {
-                AnsiConsole.MarkupLine($"[bold red]Error:[/] [red]{Markup.Escape(ex.Message)}[/]");
-                if (ex.InnerException != null)
-                {
-                    AnsiConsole.MarkupLine($"[dim red]Details: {Markup.Escape(ex.InnerException.Message)}[/]");
-                }
-            });
+            config.SetExceptionHandler((ex, _) => HandleException(ex));
 
             // ==========================================
             // Top-Level Standard Operation Commands
@@ -101,5 +95,95 @@ public static class Program
         });
 
         return await app.RunAsync(args);
+    }
+
+    internal static void HandleException(Exception ex, IAnsiConsole? console = null)
+    {
+        console ??= AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(Console.Error)
+        });
+
+        if (ex is AggregateException agg)
+        {
+            var flattened = agg.Flatten();
+            if (flattened.InnerExceptions.Count == 1)
+            {
+                RenderSingleException(flattened.InnerExceptions[0], console);
+            }
+            else
+            {
+                console.MarkupLine($"[bold red]Error[/] [dim red](AggregateException):[/] [red]{Markup.Escape(agg.Message)}[/]");
+                foreach (var innerAgg in flattened.InnerExceptions)
+                {
+                    console.MarkupLine($"  [dim red]• ({Markup.Escape(innerAgg.GetType().Name)}):[/] [red]{Markup.Escape(innerAgg.Message)}[/]");
+                    if (innerAgg is IppResponseException { ResponseMessage: not null } ippRespEx)
+                    {
+                        ConsoleTreeRenderer.Render(ippRespEx.ResponseMessage, "ResponseMessage", null, console);
+                    }
+                }
+                RenderHints(flattened.InnerExceptions.FirstOrDefault() ?? ex, console);
+            }
+        }
+        else
+        {
+            RenderSingleException(ex, console);
+        }
+
+        if (string.Equals(Environment.GetEnvironmentVariable("IPP_CLI_DEBUG"), "1", StringComparison.OrdinalIgnoreCase))
+        {
+            console.WriteLine();
+            console.WriteException(ex, ExceptionFormats.ShortenEverything);
+        }
+    }
+
+    private static void RenderSingleException(Exception ex, IAnsiConsole console)
+    {
+        console.MarkupLine($"[bold red]Error[/] [dim red]({Markup.Escape(ex.GetType().Name)}):[/] [red]{Markup.Escape(ex.Message)}[/]");
+
+        if (ex is IppResponseException { ResponseMessage: not null } ippEx)
+        {
+            ConsoleTreeRenderer.Render(ippEx.ResponseMessage, "ResponseMessage", null, console);
+        }
+
+        var inner = ex.InnerException;
+        while (inner != null)
+        {
+            console.MarkupLine($"  [dim]Caused by ({Markup.Escape(inner.GetType().Name)}):[/] [dim red]{Markup.Escape(inner.Message)}[/]");
+            if (inner is IppResponseException { ResponseMessage: not null } innerIppEx)
+            {
+                ConsoleTreeRenderer.Render(innerIppEx.ResponseMessage, "ResponseMessage", null, console);
+            }
+            inner = inner.InnerException;
+        }
+
+        RenderHints(ex, console);
+    }
+
+    private static void RenderHints(Exception ex, IAnsiConsole console)
+    {
+        bool isSslError = ex is HttpRequestException { InnerException: System.Security.Authentication.AuthenticationException }
+            || ex.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase)
+            || (ex.InnerException != null && ex.InnerException.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase));
+
+        if (isSslError)
+        {
+            console.MarkupLine("[dim yellow]Hint: If the printer uses a self-signed certificate, retry with [bold]-k[/] or [bold]--insecure[/].[/]");
+            return;
+        }
+
+        if (ex is TaskCanceledException or TimeoutException)
+        {
+            console.MarkupLine("[dim yellow]Hint: The request timed out. You can increase the timeout with [bold]-t <seconds>[/] or [bold]--timeout <seconds>[/].[/]");
+            return;
+        }
+
+        bool isSocketError = ex is System.Net.Sockets.SocketException
+            || ex.InnerException is System.Net.Sockets.SocketException;
+
+        if (isSocketError)
+        {
+            console.MarkupLine("[dim yellow]Hint: Check that the printer URI and port are correct and that the IPP service is reachable.[/]");
+        }
     }
 }

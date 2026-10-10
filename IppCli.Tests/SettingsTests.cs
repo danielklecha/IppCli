@@ -36,9 +36,9 @@ public class SettingsTests
         Assert.AreEqual(new IppVersion(2, 0), settings.Request.Version);
         Assert.AreEqual(99, settings.Request.RequestId);
         Assert.IsNotNull(settings.Request.OperationAttributes);
-        Assert.AreEqual(new Uri("ipp://192.168.1.50/ipp/system"), settings.Request.OperationAttributes.PrinterUri);
-        Assert.AreEqual(1234, settings.Request.OperationAttributes.ResourceId);
-        CollectionAssert.AreEqual(new[] { "resource-name", "resource-state" }, settings.Request.OperationAttributes.RequestedAttributes);
+        Assert.AreEqual(new Uri("ipp://192.168.1.50/ipp/system"), (Uri?)settings.Request.OperationAttributes.PrinterUri);
+        Assert.AreEqual(1234, (int?)settings.Request.OperationAttributes.ResourceId);
+        CollectionAssert.AreEqual(new[] { "resource-name", "resource-state" }, settings.Request.OperationAttributes.RequestedAttributes.Unwrap());
     }
 
     [TestMethod]
@@ -54,11 +54,11 @@ public class SettingsTests
             JtaPrintColorMode = PrintColorMode.Color
         };
 
-        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("My Document", settings.Request.OperationAttributes?.JobName);
-        Assert.AreEqual(5, settings.Request.JobTemplateAttributes?.Copies);
-        Assert.AreEqual(Sides.TwoSidedLongEdge, settings.Request.JobTemplateAttributes?.Sides);
-        Assert.AreEqual(PrintColorMode.Color, settings.Request.JobTemplateAttributes?.PrintColorMode);
+        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("My Document", settings.Request.OperationAttributes?.JobName?.ToString());
+        Assert.AreEqual(5, (int?)settings.Request.JobTemplateAttributes?.Copies);
+        Assert.AreEqual(Sides.TwoSidedLongEdge, (Sides?)settings.Request.JobTemplateAttributes?.Sides);
+        Assert.AreEqual(PrintColorMode.Color, (PrintColorMode?)settings.Request.JobTemplateAttributes?.PrintColorMode);
     }
 
     [TestMethod]
@@ -71,9 +71,9 @@ public class SettingsTests
             PaPrinterLocation = "Room 302"
         };
 
-        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Office Color Laser", settings.Request.PrinterAttributes?.PrinterInfo);
-        Assert.AreEqual("Room 302", settings.Request.PrinterAttributes?.PrinterLocation);
+        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Office Color Laser", settings.Request.PrinterAttributes?.PrinterInfo?.ToString());
+        Assert.AreEqual("Room 302", settings.Request.PrinterAttributes?.PrinterLocation?.ToString());
     }
 
     [TestMethod]
@@ -87,9 +87,9 @@ public class SettingsTests
             OpLimit = 10
         };
 
-        Assert.AreEqual(WhichJobs.Completed, settings.Request.OperationAttributes?.WhichJobs);
-        Assert.IsTrue(settings.Request.OperationAttributes?.MyJobs);
-        Assert.AreEqual(10, settings.Request.OperationAttributes?.Limit);
+        Assert.AreEqual(WhichJobs.Completed, (WhichJobs?)settings.Request.OperationAttributes?.WhichJobs);
+        Assert.IsTrue((bool?)settings.Request.OperationAttributes?.MyJobs == true);
+        Assert.AreEqual(10, (int?)settings.Request.OperationAttributes?.Limit);
     }
 
     [TestMethod]
@@ -100,9 +100,9 @@ public class SettingsTests
             OpJson = """{"printerUri": "ipp://10.0.0.5/ipp/print", "jobName": "Invoice #42", "documentFormat": "application/pdf"}"""
         };
 
-        Assert.AreEqual(new Uri("ipp://10.0.0.5/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Invoice #42", settings.Request.OperationAttributes?.JobName);
-        Assert.AreEqual(new DocumentFormat("application/pdf"), settings.Request.OperationAttributes?.DocumentFormat);
+        Assert.AreEqual(new Uri("ipp://10.0.0.5/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Invoice #42", settings.Request.OperationAttributes?.JobName?.ToString());
+        Assert.AreEqual(new DocumentFormat("application/pdf"), (DocumentFormat?)settings.Request.OperationAttributes?.DocumentFormat);
     }
 
     [TestMethod]
@@ -113,9 +113,9 @@ public class SettingsTests
             JtaJson = """{"copies": 3, "sides": "TwoSidedLongEdge", "printColorMode": "Color"}"""
         };
 
-        Assert.AreEqual(3, settings.Request.JobTemplateAttributes?.Copies);
-        Assert.AreEqual(Sides.TwoSidedLongEdge, settings.Request.JobTemplateAttributes?.Sides);
-        Assert.AreEqual(PrintColorMode.Color, settings.Request.JobTemplateAttributes?.PrintColorMode);
+        Assert.AreEqual(3, (int?)settings.Request.JobTemplateAttributes?.Copies);
+        Assert.AreEqual(Sides.TwoSidedLongEdge, (Sides?)settings.Request.JobTemplateAttributes?.Sides);
+        Assert.AreEqual(PrintColorMode.Color, (PrintColorMode?)settings.Request.JobTemplateAttributes?.PrintColorMode);
     }
 
     [TestMethod]
@@ -126,8 +126,8 @@ public class SettingsTests
             PaJson = """{"printerInfo": "Main Office", "printerLocation": "Floor 2"}"""
         };
 
-        Assert.AreEqual("Main Office", settings.Request.PrinterAttributes?.PrinterInfo);
-        Assert.AreEqual("Floor 2", settings.Request.PrinterAttributes?.PrinterLocation);
+        Assert.AreEqual("Main Office", settings.Request.PrinterAttributes?.PrinterInfo?.ToString());
+        Assert.AreEqual("Floor 2", settings.Request.PrinterAttributes?.PrinterLocation?.ToString());
     }
 
     [TestMethod]
@@ -143,8 +143,8 @@ public class SettingsTests
                 OpJson = $"@{tempFile}"
             };
 
-            Assert.AreEqual(new Uri("ipp://printer.local/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-            Assert.AreEqual("Test from File", settings.Request.OperationAttributes?.JobName);
+            Assert.AreEqual(new Uri("ipp://printer.local/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+            Assert.AreEqual("Test from File", settings.Request.OperationAttributes?.JobName?.ToString());
         }
         finally
         {
@@ -164,8 +164,8 @@ public class SettingsTests
             OpJobName = "Overridden Name"
         };
 
-        Assert.AreEqual(new Uri("ipp://10.0.0.1/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Overridden Name", settings.Request.OperationAttributes?.JobName);
+        Assert.AreEqual(new Uri("ipp://10.0.0.1/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Overridden Name", settings.Request.OperationAttributes?.JobName?.ToString());
     }
 
     [TestMethod]
@@ -176,10 +176,10 @@ public class SettingsTests
             JtaJson = """{"copies": 2, "sides": "two-sided-long-edge", "print-color-mode": "color", "orientationRequested": "landscape"}"""
         };
 
-        Assert.AreEqual(2, settings.Request.JobTemplateAttributes?.Copies);
-        Assert.AreEqual(Sides.TwoSidedLongEdge, settings.Request.JobTemplateAttributes?.Sides);
-        Assert.AreEqual(PrintColorMode.Color, settings.Request.JobTemplateAttributes?.PrintColorMode);
-        Assert.AreEqual(Orientation.Landscape, settings.Request.JobTemplateAttributes?.OrientationRequested);
+        Assert.AreEqual(2, (int?)settings.Request.JobTemplateAttributes?.Copies);
+        Assert.AreEqual(Sides.TwoSidedLongEdge, (Sides?)settings.Request.JobTemplateAttributes?.Sides);
+        Assert.AreEqual(PrintColorMode.Color, (PrintColorMode?)settings.Request.JobTemplateAttributes?.PrintColorMode);
+        Assert.AreEqual(Orientation.Landscape, (Orientation?)settings.Request.JobTemplateAttributes?.OrientationRequested);
     }
 
     [TestMethod]
@@ -190,9 +190,9 @@ public class SettingsTests
             OpJson = """{"printerUri": "ipp://192.168.1.50/ipp/system", "resourceId": 1234, "requestedAttributes": ["resource-name", "resource-state"]}"""
         };
 
-        Assert.AreEqual(new Uri("ipp://192.168.1.50/ipp/system"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual(1234, settings.Request.OperationAttributes?.ResourceId);
-        CollectionAssert.AreEqual(new[] { "resource-name", "resource-state" }, settings.Request.OperationAttributes?.RequestedAttributes);
+        Assert.AreEqual(new Uri("ipp://192.168.1.50/ipp/system"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual(1234, (int?)settings.Request.OperationAttributes?.ResourceId);
+        CollectionAssert.AreEqual(new[] { "resource-name", "resource-state" }, settings.Request.OperationAttributes?.RequestedAttributes.Unwrap());
     }
 
     [TestMethod]
@@ -218,10 +218,10 @@ public class SettingsTests
 
         Assert.AreEqual(new IppVersion(2, 0), settings.Request.Version);
         Assert.AreEqual(77, settings.Request.RequestId);
-        Assert.AreEqual(new Uri("ipp://192.168.1.150/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Full Request JSON Test", settings.Request.OperationAttributes?.JobName);
-        Assert.AreEqual(4, settings.Request.JobTemplateAttributes?.Copies);
-        Assert.AreEqual(Sides.TwoSidedLongEdge, settings.Request.JobTemplateAttributes?.Sides);
+        Assert.AreEqual(new Uri("ipp://192.168.1.150/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Full Request JSON Test", settings.Request.OperationAttributes?.JobName?.ToString());
+        Assert.AreEqual(4, (int?)settings.Request.JobTemplateAttributes?.Copies);
+        Assert.AreEqual(Sides.TwoSidedLongEdge, (Sides?)settings.Request.JobTemplateAttributes?.Sides);
     }
 
     [TestMethod]
@@ -248,8 +248,8 @@ public class SettingsTests
 
             Assert.AreEqual(new IppVersion(2, 1), settings.Request.Version);
             Assert.AreEqual(88, settings.Request.RequestId);
-            Assert.AreEqual(new Uri("ipp://printer.local/ipp/print"), settings.Request.OperationAttributes?.PrinterUri);
-            Assert.AreEqual("Test from Request File", settings.Request.OperationAttributes?.JobName);
+            Assert.AreEqual(new Uri("ipp://printer.local/ipp/print"), (Uri?)settings.Request.OperationAttributes?.PrinterUri);
+            Assert.AreEqual("Test from Request File", settings.Request.OperationAttributes?.JobName?.ToString());
         }
         finally
         {
@@ -293,10 +293,10 @@ public class SettingsTests
             """
         };
 
-        Assert.IsNotNull(settings.Request.DocumentTemplateAttributes?.MediaCol);
-        Assert.AreEqual(MediaColor.White, settings.Request.DocumentTemplateAttributes?.MediaCol?.MediaColor);
-        Assert.AreEqual(21000, settings.Request.DocumentTemplateAttributes?.MediaCol?.MediaSize?.XDimension);
-        Assert.AreEqual(29700, settings.Request.DocumentTemplateAttributes?.MediaCol?.MediaSize?.YDimension);
+        Assert.IsNotNull(settings.Request.DocumentTemplateAttributes.Unwrap()?.MediaCol.Unwrap());
+        Assert.AreEqual(MediaColor.White, (MediaColor?)settings.Request.DocumentTemplateAttributes.Unwrap()?.MediaCol.Unwrap()?.MediaColor.Unwrap());
+        Assert.AreEqual(21000, settings.Request.DocumentTemplateAttributes.Unwrap()!.MediaCol.Unwrap()!.MediaSize.Unwrap()!.XDimension!.Value.Value.Lower);
+        Assert.AreEqual(29700, settings.Request.DocumentTemplateAttributes.Unwrap()!.MediaCol.Unwrap()!.MediaSize.Unwrap()!.YDimension!.Value.Value.Lower);
     }
 
     [TestMethod]
@@ -315,10 +315,10 @@ public class SettingsTests
             """
         };
 
-        Assert.IsNotNull(settings.Request.JobTemplateAttributes?.MediaCol);
-        Assert.AreEqual(MediaColor.Blue, settings.Request.JobTemplateAttributes?.MediaCol?.MediaColor);
-        Assert.AreEqual(21590, settings.Request.JobTemplateAttributes?.MediaCol?.MediaSize?.XDimension);
-        Assert.AreEqual(27940, settings.Request.JobTemplateAttributes?.MediaCol?.MediaSize?.YDimension);
+        Assert.IsNotNull(settings.Request.JobTemplateAttributes?.MediaCol.Unwrap());
+        Assert.AreEqual(MediaColor.Blue, (MediaColor?)settings.Request.JobTemplateAttributes?.MediaCol.Unwrap()?.MediaColor.Unwrap());
+        Assert.AreEqual(21590, settings.Request.JobTemplateAttributes!.MediaCol.Unwrap()!.MediaSize.Unwrap()!.XDimension!.Value.Value.Lower);
+        Assert.AreEqual(27940, settings.Request.JobTemplateAttributes!.MediaCol.Unwrap()!.MediaSize.Unwrap()!.YDimension!.Value.Value.Lower);
 
         var serialized = settings.JtaMediaCol;
         Assert.IsNotNull(serialized);
@@ -369,8 +369,8 @@ public class SettingsTests
             JtaJson = """{"copies": 10, "sides": "TwoSidedLongEdge"}"""
         };
 
-        Assert.AreEqual(10, settings.Request.JobTemplateAttributes?.Copies);
-        Assert.AreEqual(Sides.TwoSidedLongEdge, settings.Request.JobTemplateAttributes?.Sides);
+        Assert.AreEqual(10, (int?)settings.Request.JobTemplateAttributes?.Copies);
+        Assert.AreEqual(Sides.TwoSidedLongEdge, (Sides?)settings.Request.JobTemplateAttributes?.Sides);
     }
 
     [TestMethod]
@@ -381,7 +381,7 @@ public class SettingsTests
             DtaJson = """{"copies": 7}"""
         };
 
-        Assert.AreEqual(7, settings.Request.DocumentTemplateAttributes?.Copies);
+        Assert.AreEqual(7, (int?)settings.Request.DocumentTemplateAttributes.Unwrap()?.Copies);
     }
 
     [TestMethod]
@@ -393,8 +393,8 @@ public class SettingsTests
             OpJobName = "Positional Depth Test"
         };
 
-        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), settings.CustomRequest.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Positional Depth Test", settings.CustomRequest.OperationAttributes?.JobName);
+        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), (Uri?)settings.CustomRequest.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Positional Depth Test", settings.CustomRequest.OperationAttributes?.JobName?.ToString());
     }
 
     [TestMethod]
@@ -406,8 +406,8 @@ public class SettingsTests
             OpJobName = "Named Depth Test"
         };
 
-        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), settings.CustomRequest.OperationAttributes?.PrinterUri);
-        Assert.AreEqual("Named Depth Test", settings.CustomRequest.OperationAttributes?.JobName);
+        Assert.AreEqual(new Uri("ipp://192.168.1.100/ipp/print"), (Uri?)settings.CustomRequest.OperationAttributes?.PrinterUri);
+        Assert.AreEqual("Named Depth Test", settings.CustomRequest.OperationAttributes?.JobName?.ToString());
     }
 }
 

@@ -276,6 +276,42 @@ public class FormattingTests
     }
 
     [TestMethod]
+    public void ConsoleTreeRenderer_CreateTree_IppResponseMessage_RendersAttributesHierarchy()
+    {
+        var response = new IppResponseMessage
+        {
+            Version = new IppVersion(2, 0),
+            StatusCode = IppStatusCode.ClientErrorNotFound,
+            RequestId = 100,
+            OperationAttributes =
+            {
+                new List<IppAttribute>
+                {
+                    new(Tag.Charset, "attributes-charset", "utf-8"),
+                    new(Tag.NaturalLanguage, "attributes-natural-language", "en-us"),
+                    new(Tag.TextWithoutLanguage, "status-message", "Printer not found")
+                }
+            }
+        };
+
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+
+        ConsoleTreeRenderer.Render(response, "ResponseMessage", null, console);
+
+        var output = console.Output;
+        StringAssert.Contains(output, "ResponseMessage");
+        StringAssert.Contains(output, "OperationAttributes");
+        StringAssert.Contains(output, "attributes-charset");
+        StringAssert.Contains(output, "attributes-natural-language");
+        StringAssert.Contains(output, "status-message");
+        StringAssert.Contains(output, "Printer not found");
+        StringAssert.Contains(output, "ClientErrorNotFound");
+        StringAssert.Contains(output, "Version: 2.0");
+        StringAssert.Contains(output, "RequestId: 100");
+    }
+
+    [TestMethod]
     public void ConsoleTreeRenderer_EmptyCollections_RendersWithoutError()
     {
         var model = new
@@ -306,6 +342,7 @@ public class FormattingTests
         Assert.IsFalse(BaseRenderer.IsComplexType(typeof(JobState)));
         Assert.IsFalse(BaseRenderer.IsComplexType(typeof(DateTime)));
         Assert.IsFalse(BaseRenderer.IsComplexType(typeof(byte[])));
+        Assert.IsFalse(BaseRenderer.IsComplexType(typeof(IppAttribute)));
 
         Assert.IsTrue(BaseRenderer.IsComplexType(typeof(JobDescriptionAttributes)));
         Assert.IsTrue(BaseRenderer.IsComplexType(typeof(TestItem)));
@@ -318,11 +355,15 @@ public class FormattingTests
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(JobState)));
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(JobHoldUntil)));
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(PrinterState)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(typeof(IppAttribute)));
 
         // Instances
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(JobState.Completed));
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(JobHoldUntil.Indefinite));
-        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(new JobHoldUntil("no-value", false)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(IppValue<JobHoldUntil>.NoValue));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(default(StringWithLanguage)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(default(OctetString)));
+        Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(new IppAttribute(Tag.Charset, "attributes-charset", "utf-8")));
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(false, "NoVal")));
         Assert.IsFalse(ConsoleTreeRenderer.IsLeaf(new TestNoValueClass(true, "HasVal")));
         Assert.IsTrue(ConsoleTreeRenderer.IsLeaf(null));
@@ -335,9 +376,9 @@ public class FormattingTests
     {
         var model = new
         {
-            HoldUntil = new JobHoldUntil("no-value", false),
+            HoldUntil = IppValue<JobHoldUntil>.NoValue,
             HoldUntilValid = JobHoldUntil.Indefinite,
-            ResolutionNoVal = new Resolution(300, 300, ResolutionUnit.DotsPerInch, false),
+            ResolutionNoVal = IppValue<Resolution>.NoValue,
             CustomNoValue = new TestNoValueClass(false, "Should not be displayed"),
             CustomWithValue = new TestNoValueClass(true, "Actual Value")
         };
@@ -378,8 +419,8 @@ public class FormattingTests
         {
             Items = new object[]
             {
-                new JobHoldUntil("no-value", false),
-                new Resolution(300, 300, ResolutionUnit.DotsPerInch, false),
+                IppValue<JobHoldUntil>.NoValue,
+                IppValue<Resolution>.NoValue,
                 new TestNoValueClass(false, "NoVal"),
                 JobHoldUntil.Indefinite
             }

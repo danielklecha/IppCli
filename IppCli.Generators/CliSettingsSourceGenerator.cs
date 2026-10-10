@@ -295,6 +295,7 @@ namespace IppCli.Attributes
         sb.AppendLine("using Spectre.Console.Cli;");
         sb.AppendLine("using SharpIpp.Models.Requests;");
         sb.AppendLine("using SharpIpp.Protocol.Models;");
+        sb.AppendLine("using IppCli.Models;");
         sb.AppendLine();
 
         var ns = classSymbol.ContainingNamespace.IsGlobalNamespace ? null : classSymbol.ContainingNamespace.ToDisplayString();
@@ -335,14 +336,18 @@ namespace IppCli.Attributes
 
         // If request has OperationAttributes, initialize it and set default RequestingUserName
         var opAttrProp = allRequestProps.FirstOrDefault(p => p.Name == "OperationAttributes");
-        if (opAttrProp != null && opAttrProp.Type is INamedTypeSymbol opAttrType)
+        if (opAttrProp != null)
         {
-            var cleanOpTypeName = opAttrType.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
-            sb.AppendLine($"{bodyIndent}    {propertyName}.OperationAttributes = new {cleanOpTypeName}();");
-            var allOpProps = GetAllProperties(opAttrType);
-            if (allOpProps.Any(p => p.Name == "RequestingUserName"))
+            var opUnwrapped = GetUnwrappedType(opAttrProp.Type);
+            if (opUnwrapped is INamedTypeSymbol opAttrType)
             {
-                sb.AppendLine($"{bodyIndent}    {propertyName}.OperationAttributes.RequestingUserName = Environment.UserName ?? \"anonymous\";");
+                var cleanOpTypeName = opAttrType.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+                sb.AppendLine($"{bodyIndent}    {propertyName}.OperationAttributes = new {cleanOpTypeName}();");
+                var allOpProps = GetAllProperties(opAttrType);
+                if (allOpProps.Any(p => p.Name == "RequestingUserName"))
+                {
+                    sb.AppendLine($"{bodyIndent}    {propertyName}.OperationAttributes.RequestingUserName = Environment.UserName ?? \"anonymous\";");
+                }
             }
         }
         sb.AppendLine($"{bodyIndent}}}");
@@ -351,18 +356,19 @@ namespace IppCli.Attributes
         // Inspect and generate all request properties
         foreach (var member in allRequestProps)
         {
-            if (IsAttributeGroup(member) && member.Type is INamedTypeSymbol attrType)
+            if (IsAttributeGroup(member))
             {
+                var unwrapped = (INamedTypeSymbol)GetUnwrappedType(member.Type);
                 var (propPrefix, cliPrefix, sectionTitle, jsonCliOption) = GetAttributeGroupInfo(member.Name);
                 var acronym = cliPrefix.Trim('-', ' ');
                 sb.AppendLine($"{bodyIndent}// ==========================================================");
                 sb.AppendLine($"{bodyIndent}// {sectionTitle} ({cliPrefix}*)");
                 sb.AppendLine($"{bodyIndent}// ==========================================================");
-                GenerateNestedAttributes(sb, bodyIndent, member.Name, propPrefix, acronym, jsonCliOption, attrType, propertyName, maxNestingDepth, spc, classSymbol);
+                GenerateNestedAttributes(sb, bodyIndent, member, propPrefix, acronym, jsonCliOption, unwrapped, propertyName, maxNestingDepth, spc, classSymbol);
             }
             else
             {
-                GenerateProperty(sb, bodyIndent, containerPropertyName: null, propPrefix: "", cliSegments: Array.Empty<string>(), member, propertyName, depth: 0, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
+                GenerateProperty(sb, bodyIndent, containerSegments: ImmutableList<ContainerSegment>.Empty, propPrefix: "", cliSegments: Array.Empty<string>(), member, propertyName, depth: 0, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
             }
         }
 
@@ -379,10 +385,92 @@ namespace IppCli.Attributes
         return sb.ToString();
     }
 
+    private sealed class ContainerSegment
+    {
+        public string Name { get; }
+        public ITypeSymbol Type { get; }
+        public bool IsIppValue { get; }
+        public string CleanTypeName { get; }
+
+        public ContainerSegment(string name, ITypeSymbol type)
+        {
+            Name = name;
+            Type = type;
+            IsIppValue = IsIppValueType(type);
+            var unwrapped = GetUnwrappedType(type);
+            CleanTypeName = unwrapped.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+        }
+    }
+
+    private static string BuildGetterAccess(string targetPropertyName, ImmutableList<ContainerSegment> containerSegments, string propName, bool isPropIppValue)
+    {
+        var sb = new StringBuilder();
+        sb.Append(targetPropertyName);
+
+        for (int i = 0; i < containerSegments.Count; i++)
+        {
+            var seg = containerSegments[i];
+            if (seg.IsIppValue)
+            {
+                sb.Append($".{seg.Name}.Unwrap()?");
+            }
+            else
+            {
+                sb.Append($".{seg.Name}?");
+            }
+        }
+
+        sb.Append($".{propName}");
+        if (isPropIppValue)
+        {
+            sb.Append(".Unwrap()");
+        }
+
+        return sb.ToString();
+    }
+
+    private static (string TargetVar, string SetupCode) BuildSetterTargetAndSetup(
+        string indent,
+        string targetPropertyName,
+        ImmutableList<ContainerSegment> containerSegments)
+    {
+        if (containerSegments.IsEmpty)
+        {
+            return (targetPropertyName, string.Empty);
+        }
+
+        var sb = new StringBuilder();
+        string currentVar = targetPropertyName;
+
+        for (int i = 0; i < containerSegments.Count; i++)
+        {
+            var seg = containerSegments[i];
+            var nextVar = $"container_{i}";
+
+            if (seg.IsIppValue)
+            {
+                sb.AppendLine($"{indent}            var {nextVar} = {currentVar}.{seg.Name}.Unwrap();");
+                sb.AppendLine($"{indent}            if ({nextVar} == null)");
+                sb.AppendLine($"{indent}            {{");
+                sb.AppendLine($"{indent}                {nextVar} = new {seg.CleanTypeName}();");
+                sb.AppendLine($"{indent}                {currentVar}.{seg.Name} = {nextVar};");
+                sb.AppendLine($"{indent}            }}");
+            }
+            else
+            {
+                sb.AppendLine($"{indent}            var {nextVar} = {currentVar}.{seg.Name} ??= new {seg.CleanTypeName}();");
+            }
+
+            currentVar = nextVar;
+        }
+
+        return (currentVar, sb.ToString());
+    }
+
     private static void GenerateNestedAttributes(
         StringBuilder sb,
         string indent,
-        string containerPropertyName,
+        IPropertySymbol groupMember,
         string propPrefix,
         string acronym,
         string jsonCliOption,
@@ -392,20 +480,22 @@ namespace IppCli.Attributes
         SourceProductionContext spc,
         INamedTypeSymbol classSymbol)
     {
-        GenerateContainerJsonOption(sb, indent, containerPropertyName, propPrefix, jsonCliOption, attrType, targetPropertyName);
+        var groupSegment = new ContainerSegment(groupMember.Name, groupMember.Type);
+        GenerateContainerJsonOption(sb, indent, groupSegment, propPrefix, jsonCliOption, attrType, targetPropertyName);
 
         var properties = GetAllProperties(attrType);
+        var containerSegments = ImmutableList.Create(groupSegment);
 
         foreach (var prop in properties)
         {
-            GenerateProperty(sb, indent, containerPropertyName, propPrefix, new[] { acronym }, prop, targetPropertyName, depth: 1, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
+            GenerateProperty(sb, indent, containerSegments, propPrefix, new[] { acronym }, prop, targetPropertyName, depth: 1, maxNestingDepth: maxNestingDepth, spc: spc, classSymbol: classSymbol);
         }
     }
 
     private static void GenerateProperty(
         StringBuilder sb,
         string indent,
-        string? containerPropertyName,
+        ImmutableList<ContainerSegment> containerSegments,
         string propPrefix,
         IReadOnlyList<string> cliSegments,
         IPropertySymbol prop,
@@ -433,87 +523,98 @@ namespace IppCli.Attributes
         else if (unwrappedTypeName == "Uri" || fullTypeName == "System.Uri")
         {
             var uriDesc = $"URI value for {propName}";
-            GenerateUriProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, uriDesc);
+            GenerateUriProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, uriDesc, prop);
         }
         else if (unwrappedTypeName == "IppVersion" || fullTypeName == "SharpIpp.Protocol.Models.IppVersion")
         {
             var verDesc = $"IPP Version value for {propName}";
-            GenerateIppVersionProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, verDesc);
+            GenerateIppVersionProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, verDesc, prop);
         }
-        else if (prop.Type is IArrayTypeSymbol arrayType)
+        else if (unwrappedType is IArrayTypeSymbol arrayType)
         {
-            if (IsIppCollection(arrayType.ElementType) || IsComplexType(arrayType.ElementType))
+            var elemType = GetUnwrappedType(arrayType.ElementType);
+            if (IsIppCollection(elemType) || IsComplexType(elemType))
             {
                 var collOptName = BuildOptionAliases(cliSegments, kebabName, "<JSON>");
                 var collDesc = $"JSON array string or @file.json for {propName}";
-                GenerateComplexArrayProperty(sb, indent, containerPropertyName, csharpPropName, collOptName, propName, arrayType.ElementType, targetPropertyName, collDesc);
+                GenerateComplexArrayProperty(sb, indent, containerSegments, csharpPropName, collOptName, propName, elemType, targetPropertyName, collDesc, prop);
             }
             else
             {
                 var arrDesc = $"Comma-separated array values for {propName}";
-                GenerateArrayProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, arrayType, targetPropertyName, arrDesc);
+                GenerateArrayProperty(sb, indent, containerSegments, csharpPropName, optName, propName, arrayType, elemType, targetPropertyName, arrDesc, prop);
             }
         }
         else if (unwrappedType.TypeKind == TypeKind.Enum)
         {
             var enumDesc = $"Enum value for {propName}";
-            GenerateEnumProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, unwrappedType, targetPropertyName, enumDesc);
+            GenerateEnumProperty(sb, indent, containerSegments, csharpPropName, optName, propName, unwrappedType, targetPropertyName, enumDesc, prop);
         }
-        else if (unwrappedType.AllInterfaces.Any(i => i.Name == "ISmartEnum"))
+        else if (unwrappedType.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IKeywordEnum" or "IKeywordOrNameEnum"))
         {
             var smartDesc = $"{unwrappedType.Name} value for {propName}";
-            GenerateSmartEnumProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, unwrappedType, targetPropertyName, smartDesc);
+            GenerateSmartEnumProperty(sb, indent, containerSegments, csharpPropName, optName, propName, unwrappedType, targetPropertyName, smartDesc, prop);
         }
         else if (unwrappedType.SpecialType == SpecialType.System_Boolean)
         {
             var boolDesc = $"Boolean flag for {propName}";
             var boolOptName = BuildOptionAliases(cliSegments, kebabName);
-            GenerateBoolProperty(sb, indent, containerPropertyName, csharpPropName, boolOptName, propName, targetPropertyName, boolDesc);
+            GenerateBoolProperty(sb, indent, containerSegments, csharpPropName, boolOptName, propName, targetPropertyName, boolDesc, prop);
         }
         else if (unwrappedType.SpecialType == SpecialType.System_Int32)
         {
             var isNullable = prop.Type.Name == "Nullable";
             var intDesc = $"Integer value for {propName}";
-            GenerateIntProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, intDesc, isNullable);
+            GenerateIntProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, intDesc, isNullable, prop);
         }
         else if (unwrappedType.SpecialType == SpecialType.System_String)
         {
             var strDesc = $"String value for {propName}";
-            GenerateStringProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, strDesc);
+            GenerateStringProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, strDesc, prop);
+        }
+        else if (unwrappedTypeName == "StringWithLanguage" || fullTypeName == "SharpIpp.Protocol.Models.StringWithLanguage")
+        {
+            var strDesc = $"String with language value for {propName}";
+            GenerateStringWithLanguageProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, strDesc, prop);
+        }
+        else if (unwrappedTypeName == "OctetString" || fullTypeName == "SharpIpp.Protocol.Models.OctetString")
+        {
+            var octetDesc = $"Octet string value for {propName}";
+            GenerateOctetStringProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, octetDesc, prop);
         }
         else if (unwrappedTypeName == "DateTimeOffset" || fullTypeName == "System.DateTimeOffset")
         {
             var dtDesc = $"DateTimeOffset value for {propName}";
-            GenerateDateTimeOffsetProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, dtDesc);
+            GenerateDateTimeOffsetProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, dtDesc, prop);
         }
         else if (unwrappedTypeName == "Range" || fullTypeName == "SharpIpp.Protocol.Models.Range")
         {
             var rangeDesc = $"Range value (e.g. 1-100 or 5) for {propName}";
-            GenerateRangeProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, targetPropertyName, rangeDesc);
+            GenerateRangeProperty(sb, indent, containerSegments, csharpPropName, optName, propName, targetPropertyName, rangeDesc, prop);
         }
         else if (IsIppCollection(unwrappedType) || IsComplexType(unwrappedType) || IsCollectionOrDictionary(unwrappedType))
         {
             var collOptName = BuildOptionAliases(cliSegments, kebabName, "<JSON>");
             var collDesc = $"JSON string or @file.json for {propName}";
-            GenerateComplexProperty(sb, indent, containerPropertyName, csharpPropName, collOptName, propName, unwrappedType, targetPropertyName, collDesc);
+            GenerateComplexProperty(sb, indent, containerSegments, csharpPropName, collOptName, propName, unwrappedType, targetPropertyName, collDesc, prop);
 
             if (!IsCollectionOrDictionary(unwrappedType) && depth < maxNestingDepth && unwrappedType is INamedTypeSymbol complexNamedType)
             {
                 var subProperties = GetAllProperties(complexNamedType);
-                var nextContainer = string.IsNullOrEmpty(containerPropertyName) ? propName : $"{containerPropertyName}.{propName}";
+                var nextSegments = containerSegments.Add(new ContainerSegment(propName, prop.Type));
                 var nextPropPrefix = $"{propPrefix}{propName}";
-                var nextSegments = new List<string>(cliSegments) { kebabName };
+                var nextCliSegments = new List<string>(cliSegments) { kebabName };
 
                 foreach (var subProp in subProperties)
                 {
-                    GenerateProperty(sb, indent, nextContainer, nextPropPrefix, nextSegments, subProp, targetPropertyName, depth + 1, maxNestingDepth, spc, classSymbol);
+                    GenerateProperty(sb, indent, nextSegments, nextPropPrefix, nextCliSegments, subProp, targetPropertyName, depth + 1, maxNestingDepth, spc, classSymbol);
                 }
             }
         }
         else
         {
             var fbDesc = $"Value for {propName}";
-            GenerateFallbackProperty(sb, indent, containerPropertyName, csharpPropName, optName, propName, prop.Type, targetPropertyName, fbDesc);
+            GenerateFallbackProperty(sb, indent, containerSegments, csharpPropName, optName, propName, prop.Type, targetPropertyName, fbDesc);
 
             var propLocation = prop.Locations.FirstOrDefault() ?? Location.None;
             spc.ReportDiagnostic(Diagnostic.Create(
@@ -522,24 +623,6 @@ namespace IppCli.Attributes
                 propName,
                 classSymbol.Name,
                 prop.Type.ToDisplayString()));
-        }
-    }
-
-    private static string GetSafePath(string? container)
-    {
-        if (string.IsNullOrEmpty(container)) return "";
-        return string.Join("?.", container!.Split('.'));
-    }
-
-    private static void EmitContainerNullChecks(StringBuilder sb, string indent, string targetPropertyName, string? container)
-    {
-        if (string.IsNullOrEmpty(container)) return;
-        var parts = container!.Split('.');
-        var chain = "";
-        foreach (var part in parts)
-        {
-            chain = string.IsNullOrEmpty(chain) ? part : $"{chain}.{part}";
-            sb.AppendLine($"{indent}            {targetPropertyName}.{chain} ??= new();");
         }
     }
 
@@ -564,13 +647,26 @@ namespace IppCli.Attributes
         return false;
     }
 
+    private static bool IsIppValueType(ITypeSymbol type)
+    {
+        var current = type;
+        if (current is INamedTypeSymbol nullable && nullable.IsGenericType &&
+            (nullable.Name == "Nullable" || nullable.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T))
+        {
+            current = nullable.TypeArguments[0];
+        }
+        return current is INamedTypeSymbol nts && nts.IsGenericType && nts.Name == "IppValue";
+    }
+
     private static ITypeSymbol GetUnwrappedType(ITypeSymbol type)
     {
-        if (type is INamedTypeSymbol nts && nts.IsGenericType && (nts.Name == "Nullable" || nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T))
+        var current = type;
+        while (current is INamedTypeSymbol nts && nts.IsGenericType &&
+               (nts.Name == "Nullable" || nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T || nts.Name == "IppValue"))
         {
-            return nts.TypeArguments[0];
+            current = nts.TypeArguments[0];
         }
-        return type;
+        return current;
     }
 
     private static void GenerateStreamProperty(
@@ -595,41 +691,35 @@ namespace IppCli.Attributes
     private static void GenerateUriProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = new Uri(value, UriKind.Absolute);");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            var uri = new Uri(value, UriKind.Absolute);");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = uri;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            var uri = new Uri(value, UriKind.Absolute);");
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = uri;");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -637,40 +727,34 @@ namespace IppCli.Attributes
     private static void GenerateIppVersionProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName}.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = new IppVersion(value);");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = new IppVersion(value);");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = new IppVersion(value);");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -678,42 +762,36 @@ namespace IppCli.Attributes
     private static void GenerateSmartEnumProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
-        ITypeSymbol type,
+        ITypeSymbol unwrappedType,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
-        var typeName = type.ToDisplayString();
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+        var typeName = unwrappedType.ToDisplayString();
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {typeName}? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value.HasValue)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = value.Value;");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -721,90 +799,61 @@ namespace IppCli.Attributes
     private static void GenerateArrayProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         IArrayTypeSymbol arrayType,
+        ITypeSymbol elemType,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
-        var elemType = arrayType.ElementType;
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
         var elemTypeName = elemType.ToDisplayString();
+        var fieldName = $"_{csharpPropName.Substring(0, 1).ToLowerInvariant()}{csharpPropName.Substring(1)}";
 
-        sb.AppendLine($"{indent}private string? _{csharpPropName.ToLowerInvariant()};");
+        sb.AppendLine($"{indent}private string? {fieldName};");
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter} is {{ }} arr ? string.Join(\",\", arr.Select(x => x.ToString())) : {fieldName};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        {fieldName} = value;");
+        sb.AppendLine($"{indent}        if (string.IsNullOrWhiteSpace(value)) return;");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName} != null ? string.Join(\",\", {targetPropertyName}.{propName}.Select(x => x.ToString())) : _{csharpPropName.ToLowerInvariant()};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        _{csharpPropName.ToLowerInvariant()} = value;");
-            sb.AppendLine($"{indent}        if (string.IsNullOrWhiteSpace(value)) return;");
-            if (elemType.SpecialType == SpecialType.System_String)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);");
-            }
-            else if (elemType.SpecialType == SpecialType.System_Int32)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse).ToArray();");
-            }
-            else if (elemType.TypeKind == TypeKind.Enum)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => ({elemTypeName})Enum.Parse(typeof({elemTypeName}), s, true)).ToArray();");
-            }
-            else if (elemType.Name == "IdentifyAction")
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new SharpIpp.Protocol.Models.IdentifyAction(s)).ToArray();");
-            }
-            else if (elemType.Name == "Range")
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => {{ var parts = s.Split('-'); return parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0])); }}).ToArray();");
-            }
-            else if (elemType.AllInterfaces.Any(i => i.Name == "ISmartEnum"))
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new {elemTypeName}(s)).ToArray();");
-            }
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
+        if (elemType.SpecialType == SpecialType.System_String)
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} != null ? string.Join(\",\", {targetPropertyName}.{container}.{propName}!.Select(x => x.ToString())) : _{csharpPropName.ToLowerInvariant()};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        _{csharpPropName.ToLowerInvariant()} = value;");
-            sb.AppendLine($"{indent}        if (string.IsNullOrWhiteSpace(value)) return;");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-
-            if (elemType.SpecialType == SpecialType.System_String)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);");
-            }
-            else if (elemType.SpecialType == SpecialType.System_Int32)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse).ToArray();");
-            }
-            else if (elemType.TypeKind == TypeKind.Enum)
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => ({elemTypeName})Enum.Parse(typeof({elemTypeName}), s, true)).ToArray();");
-            }
-            else if (elemType.Name == "IdentifyAction")
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new SharpIpp.Protocol.Models.IdentifyAction(s)).ToArray();");
-            }
-            else if (elemType.Name == "Range")
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => {{ var parts = s.Split('-'); return parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0])); }}).ToArray();");
-            }
-            else if (elemType.AllInterfaces.Any(i => i.Name == "ISmartEnum"))
-            {
-                sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new {elemTypeName}(s)).ToArray();");
-            }
-            sb.AppendLine($"{indent}    }}");
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);");
         }
+        else if (elemType.SpecialType == SpecialType.System_Int32)
+        {
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse).ToArray();");
+        }
+        else if (elemType.TypeKind == TypeKind.Enum)
+        {
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => ({elemTypeName})Enum.Parse(typeof({elemTypeName}), s, true)).ToArray();");
+        }
+        else if (elemType.Name == "IdentifyAction")
+        {
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new SharpIpp.Protocol.Models.IdentifyAction(s)).ToArray();");
+        }
+        else if (elemType.Name == "Range")
+        {
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => {{ var parts = s.Split('-'); return parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0])); }}).ToArray();");
+        }
+        else if (elemType.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IKeywordEnum" or "IKeywordOrNameEnum"))
+        {
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => new {elemTypeName}(s)).ToArray();");
+        }
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -812,44 +861,37 @@ namespace IppCli.Attributes
     private static void GenerateEnumProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
-        ITypeSymbol type,
+        ITypeSymbol unwrappedType,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
-        var enumType = type is INamedTypeSymbol nts && nts.IsGenericType ? nts.TypeArguments[0] : type;
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+        var enumType = unwrappedType is INamedTypeSymbol nts && nts.IsGenericType ? nts.TypeArguments[0] : unwrappedType;
         var enumTypeName = enumType.ToDisplayString();
 
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {enumTypeName}? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value.HasValue)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = value.Value;");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -857,31 +899,31 @@ namespace IppCli.Attributes
     private static void GenerateBoolProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public bool {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter} ?? false;");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set => {targetPropertyName}.{propName} = value;");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} ?? false;");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value;");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}        {targetVar}.{propName} = value;");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -889,37 +931,48 @@ namespace IppCli.Attributes
     private static void GenerateIntProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
         string description,
-        bool isNullable)
+        bool isNullable,
+        IPropertySymbol prop)
     {
-        var typeName = (string.IsNullOrEmpty(container) && !isNullable) ? "int" : "int?";
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+        var isNullableInt = !containerSegments.IsEmpty || isNullable || isIppValue;
+        var typeName = isNullableInt ? "int?" : "int";
 
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public {typeName} {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        if (isNullableInt)
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set => {targetPropertyName}.{propName} = value;");
+            sb.AppendLine($"{indent}        if (value.HasValue)");
+            sb.AppendLine($"{indent}        {{");
+            if (!string.IsNullOrEmpty(setup))
+            {
+                sb.Append(setup);
+            }
+            sb.AppendLine($"{indent}            {targetVar}.{propName} = value.Value;");
+            sb.AppendLine($"{indent}        }}");
         }
         else
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            if (!string.IsNullOrEmpty(setup))
+            {
+                sb.Append(setup);
+            }
+            sb.AppendLine($"{indent}        {targetVar}.{propName} = value;");
         }
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -927,31 +980,104 @@ namespace IppCli.Attributes
     private static void GenerateStringProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value != null)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set => {targetPropertyName}.{propName} = value;");
+            sb.Append(setup);
         }
-        else
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = value;");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine();
+    }
+
+    private static void GenerateStringWithLanguageProperty(
+        StringBuilder sb,
+        string indent,
+        ImmutableList<ContainerSegment> containerSegments,
+        string csharpPropName,
+        string aliases,
+        string propName,
+        string targetPropertyName,
+        string description,
+        IPropertySymbol prop)
+    {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
+        sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
+        sb.AppendLine($"{indent}public string? {csharpPropName}");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value != null)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}        {targetPropertyName}.{container}.{propName} = value;");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = new SharpIpp.Protocol.Models.StringWithLanguage(null, value);");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine();
+    }
+
+    private static void GenerateOctetStringProperty(
+        StringBuilder sb,
+        string indent,
+        ImmutableList<ContainerSegment> containerSegments,
+        string csharpPropName,
+        string aliases,
+        string propName,
+        string targetPropertyName,
+        string description,
+        IPropertySymbol prop)
+    {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
+        sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
+        sb.AppendLine($"{indent}public string? {csharpPropName}");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value != null)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
+        {
+            sb.Append(setup);
+        }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = new SharpIpp.Protocol.Models.OctetString(value);");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -959,40 +1085,34 @@ namespace IppCli.Attributes
     private static void GenerateDateTimeOffsetProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public DateTimeOffset? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (value.HasValue)");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (value.HasValue)");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = value.Value;");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = value.Value;");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -1000,7 +1120,7 @@ namespace IppCli.Attributes
     private static void GenerateFallbackProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
@@ -1008,26 +1128,18 @@ namespace IppCli.Attributes
         string targetPropertyName,
         string description)
     {
+        var isIppValue = IsIppValueType(type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        // Fallback property mapping");
-            sb.AppendLine($"{indent}    }}");
-        }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        // Fallback property mapping");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        // Fallback property mapping");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -1035,19 +1147,23 @@ namespace IppCli.Attributes
     private static void GenerateComplexProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         ITypeSymbol type,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
-        var isNullableValueType = type is INamedTypeSymbol nts && nts.IsGenericType && (nts.Name == "Nullable" || nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T);
-        var isNonNullableValueType = type.IsValueType && !isNullableValueType;
-        var cleanTypeName = (isNullableValueType || isNonNullableValueType)
-            ? (isNullableValueType ? ((INamedTypeSymbol)type).TypeArguments[0].ToDisplayString() : type.ToDisplayString())
-            : type.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+        var isIppValue = IsIppValueType(prop.Type);
+        var unwrappedType = GetUnwrappedType(type);
+        var isNullableValueType = unwrappedType is INamedTypeSymbol nts && nts.IsGenericType && (nts.Name == "Nullable" || nts.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T);
+        var isNonNullableValueType = unwrappedType.IsValueType && !isNullableValueType;
+        var cleanTypeName = unwrappedType.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
 
         var fieldName = $"_{csharpPropName.Substring(0, 1).ToLowerInvariant()}{csharpPropName.Substring(1)}";
 
@@ -1056,113 +1172,38 @@ namespace IppCli.Attributes
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter} != null ? IppCli.Serialization.IppJsonHelper.Serialize({getter}) : {fieldName};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        {fieldName} = value;");
+        sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
+        sb.AppendLine($"{indent}        {{");
+        if (isNonNullableValueType)
         {
-            if (isNonNullableValueType)
+            sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}?>(value);");
+            sb.AppendLine($"{indent}            if (parsed.HasValue)");
+            sb.AppendLine($"{indent}            {{");
+            if (!string.IsNullOrEmpty(setup))
             {
-                sb.AppendLine($"{indent}    get => IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{propName});");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}?>(value);");
-                sb.AppendLine($"{indent}            if (parsed.HasValue)");
-                sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                {targetPropertyName}.{propName} = parsed.Value;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
+                sb.Append(setup);
             }
-            else if (isNullableValueType)
-            {
-                sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName}.HasValue ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{propName}.Value) : {fieldName};");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}?>(value);");
-                sb.AppendLine($"{indent}            if (parsed.HasValue)");
-                sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                {targetPropertyName}.{propName} = parsed.Value;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
-            }
-            else
-            {
-                sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{propName}) : {fieldName};");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}>(value);");
-                sb.AppendLine($"{indent}            if (parsed != null)");
-                sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                {targetPropertyName}.{propName} = parsed;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
-            }
+            sb.AppendLine($"{indent}                {targetVar}.{propName} = parsed.Value;");
+            sb.AppendLine($"{indent}            }}");
         }
         else
         {
-            if (isNonNullableValueType)
+            sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}>(value);");
+            sb.AppendLine($"{indent}            if (parsed != null)");
+            sb.AppendLine($"{indent}            {{");
+            if (!string.IsNullOrEmpty(setup))
             {
-                sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{container}.{propName}) : {fieldName};");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}?>(value);");
-                sb.AppendLine($"{indent}            if (parsed.HasValue)");
-                sb.AppendLine($"{indent}            {{");
-                EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-                sb.AppendLine($"{indent}                {targetPropertyName}.{container}.{propName} = parsed.Value;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
+                sb.Append(setup);
             }
-            else if (isNullableValueType)
-            {
-                sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName}.HasValue == true ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{container}.{propName}.Value) : {fieldName};");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}?>(value);");
-                sb.AppendLine($"{indent}            if (parsed.HasValue)");
-                sb.AppendLine($"{indent}            {{");
-                EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-                sb.AppendLine($"{indent}                {targetPropertyName}.{container}.{propName} = parsed.Value;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
-            }
-            else
-            {
-                sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{container}.{propName}) : {fieldName};");
-                sb.AppendLine($"{indent}    set");
-                sb.AppendLine($"{indent}    {{");
-                sb.AppendLine($"{indent}        {fieldName} = value;");
-                sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-                sb.AppendLine($"{indent}        {{");
-                sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}>(value);");
-                sb.AppendLine($"{indent}            if (parsed != null)");
-                sb.AppendLine($"{indent}            {{");
-                EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-                sb.AppendLine($"{indent}                {targetPropertyName}.{container}.{propName} = parsed;");
-                sb.AppendLine($"{indent}            }}");
-                sb.AppendLine($"{indent}        }}");
-                sb.AppendLine($"{indent}    }}");
-            }
+            sb.AppendLine($"{indent}                {targetVar}.{propName} = parsed;");
+            sb.AppendLine($"{indent}            }}");
         }
-
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -1170,15 +1211,19 @@ namespace IppCli.Attributes
     private static void GenerateComplexArrayProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         ITypeSymbol elemType,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
         var cleanElemTypeName = elemType.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
         var fieldName = $"_{csharpPropName.Substring(0, 1).ToLowerInvariant()}{csharpPropName.Substring(1)}";
 
         sb.AppendLine($"{indent}private string? {fieldName};");
@@ -1186,39 +1231,23 @@ namespace IppCli.Attributes
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => {getter} != null ? IppCli.Serialization.IppJsonHelper.Serialize({getter}) : {fieldName};");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        {fieldName} = value;");
+        sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
+        sb.AppendLine($"{indent}        {{");
+        sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanElemTypeName}[]>(value);");
+        sb.AppendLine($"{indent}            if (parsed != null)");
+        sb.AppendLine($"{indent}            {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{propName}) : {fieldName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        {fieldName} = value;");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanElemTypeName}[]>(value);");
-            sb.AppendLine($"{indent}            if (parsed != null)");
-            sb.AppendLine($"{indent}            {{");
-            sb.AppendLine($"{indent}                {targetPropertyName}.{propName} = parsed;");
-            sb.AppendLine($"{indent}            }}");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{container}.{propName}) : {fieldName};");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        {fieldName} = value;");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanElemTypeName}[]>(value);");
-            sb.AppendLine($"{indent}            if (parsed != null)");
-            sb.AppendLine($"{indent}            {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}                {targetPropertyName}.{container}.{propName} = parsed;");
-            sb.AppendLine($"{indent}            }}");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}                {targetVar}.{propName} = parsed;");
+        sb.AppendLine($"{indent}            }}");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -1226,7 +1255,7 @@ namespace IppCli.Attributes
     private static void GenerateContainerJsonOption(
         StringBuilder sb,
         string indent,
-        string containerPropertyName,
+        ContainerSegment groupSegment,
         string propPrefix,
         string cliOption,
         INamedTypeSymbol attrType,
@@ -1237,10 +1266,17 @@ namespace IppCli.Attributes
 
         sb.AppendLine($"{indent}private string? _{csharpPropName.ToLowerInvariant()};");
         sb.AppendLine($"{indent}[CommandOption(\"{cliOption}\")]");
-        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"JSON string or @file.json for {containerPropertyName}\")]");
+        sb.AppendLine($"{indent}[System.ComponentModel.Description(\"JSON string or @file.json for {groupSegment.Name}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        sb.AppendLine($"{indent}    get => {targetPropertyName}.{containerPropertyName} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{containerPropertyName}) : _{csharpPropName.ToLowerInvariant()};");
+        if (groupSegment.IsIppValue)
+        {
+            sb.AppendLine($"{indent}    get => {targetPropertyName}.{groupSegment.Name}.Unwrap() != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{groupSegment.Name}.Unwrap()) : _{csharpPropName.ToLowerInvariant()};");
+        }
+        else
+        {
+            sb.AppendLine($"{indent}    get => {targetPropertyName}.{groupSegment.Name} != null ? IppCli.Serialization.IppJsonHelper.Serialize({targetPropertyName}.{groupSegment.Name}) : _{csharpPropName.ToLowerInvariant()};");
+        }
         sb.AppendLine($"{indent}    set");
         sb.AppendLine($"{indent}    {{");
         sb.AppendLine($"{indent}        _{csharpPropName.ToLowerInvariant()} = value;");
@@ -1249,7 +1285,7 @@ namespace IppCli.Attributes
         sb.AppendLine($"{indent}            var parsed = IppCli.Serialization.IppJsonHelper.Deserialize<{cleanTypeName}>(value);");
         sb.AppendLine($"{indent}            if (parsed != null)");
         sb.AppendLine($"{indent}            {{");
-        sb.AppendLine($"{indent}                {targetPropertyName}.{containerPropertyName} = parsed;");
+        sb.AppendLine($"{indent}                {targetPropertyName}.{groupSegment.Name} = parsed;");
         sb.AppendLine($"{indent}            }}");
         sb.AppendLine($"{indent}        }}");
         sb.AppendLine($"{indent}    }}");
@@ -1259,18 +1295,18 @@ namespace IppCli.Attributes
 
     private static bool IsAttributeGroup(IPropertySymbol member)
     {
-        if (member.Type is not INamedTypeSymbol namedType)
+        var unwrapped = GetUnwrappedType(member.Type);
+        if (unwrapped is not INamedTypeSymbol namedType)
             return false;
 
         if (namedType.TypeKind != TypeKind.Class)
             return false;
 
         if (IsStreamType(namedType)) return false;
-        var unwrapped = GetUnwrappedType(namedType);
         if (unwrapped.SpecialType != SpecialType.None) return false;
         if (unwrapped.TypeKind == TypeKind.Enum) return false;
-        if (unwrapped.AllInterfaces.Any(i => i.Name == "ISmartEnum")) return false;
-        if (unwrapped.Name is "Uri" or "IppVersion" or "DateTimeOffset" or "String" or "Int32" or "Boolean" or "Stream") return false;
+        if (unwrapped.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IKeywordEnum" or "IKeywordOrNameEnum")) return false;
+        if (unwrapped.Name is "Uri" or "IppVersion" or "DateTimeOffset" or "String" or "Int32" or "Boolean" or "Stream" or "StringWithLanguage" or "OctetString") return false;
 
         return GetAllProperties(namedType).Count > 0;
     }
@@ -1319,42 +1355,35 @@ namespace IppCli.Attributes
     private static void GenerateRangeProperty(
         StringBuilder sb,
         string indent,
-        string? container,
+        ImmutableList<ContainerSegment> containerSegments,
         string csharpPropName,
         string aliases,
         string propName,
         string targetPropertyName,
-        string description)
+        string description,
+        IPropertySymbol prop)
     {
+        var isIppValue = IsIppValueType(prop.Type);
+        var getter = BuildGetterAccess(targetPropertyName, containerSegments, propName, isIppValue);
+        var (targetVar, setup) = BuildSetterTargetAndSetup(indent, targetPropertyName, containerSegments);
+
         sb.AppendLine($"{indent}[CommandOption(\"{aliases}\")]");
         sb.AppendLine($"{indent}[System.ComponentModel.Description(\"{description}\")]");
         sb.AppendLine($"{indent}public string? {csharpPropName}");
         sb.AppendLine($"{indent}{{");
-        if (string.IsNullOrEmpty(container))
+        sb.AppendLine($"{indent}    get => ((object?){getter})?.ToString();");
+        sb.AppendLine($"{indent}    set");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
+        sb.AppendLine($"{indent}        {{");
+        if (!string.IsNullOrEmpty(setup))
         {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            sb.AppendLine($"{indent}            var parts = value.Split('-');");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{propName} = parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0]));");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
+            sb.Append(setup);
         }
-        else
-        {
-            sb.AppendLine($"{indent}    get => {targetPropertyName}.{GetSafePath(container)}?.{propName}?.ToString();");
-            sb.AppendLine($"{indent}    set");
-            sb.AppendLine($"{indent}    {{");
-            sb.AppendLine($"{indent}        if (!string.IsNullOrWhiteSpace(value))");
-            sb.AppendLine($"{indent}        {{");
-            EmitContainerNullChecks(sb, indent, targetPropertyName, container);
-            sb.AppendLine($"{indent}            var parts = value.Split('-');");
-            sb.AppendLine($"{indent}            {targetPropertyName}.{container}.{propName} = parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0]));");
-            sb.AppendLine($"{indent}        }}");
-            sb.AppendLine($"{indent}    }}");
-        }
+        sb.AppendLine($"{indent}            var parts = value.Split('-');");
+        sb.AppendLine($"{indent}            {targetVar}.{propName} = parts.Length > 1 ? new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[1])) : new SharpIpp.Protocol.Models.Range(int.Parse(parts[0]), int.Parse(parts[0]));");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}    }}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
@@ -1365,8 +1394,8 @@ namespace IppCli.Attributes
         if (unwrapped.TypeKind != TypeKind.Class && unwrapped.TypeKind != TypeKind.Struct) return false;
         if (unwrapped.SpecialType != SpecialType.None) return false;
         if (unwrapped.TypeKind == TypeKind.Enum) return false;
-        if (unwrapped.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IEnumerable" or "ICollection" or "IList" or "IDictionary")) return false;
-        if (unwrapped.Name is "Uri" or "IppVersion" or "DateTimeOffset" or "String" or "Int32" or "Boolean" or "Stream" or "Range" or "IdentifyAction" or "DocumentFormat" or "IppStructuredString") return false;
+        if (unwrapped.AllInterfaces.Any(i => i.Name is "ISmartEnum" or "IKeywordEnum" or "IKeywordOrNameEnum" or "IEnumerable" or "ICollection" or "IList" or "IDictionary")) return false;
+        if (unwrapped.Name is "Uri" or "IppVersion" or "DateTimeOffset" or "String" or "Int32" or "Boolean" or "Stream" or "Range" or "IdentifyAction" or "DocumentFormat" or "IppStructuredString" or "StringWithLanguage" or "OctetString") return false;
         return true;
     }
 
