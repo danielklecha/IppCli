@@ -137,4 +137,40 @@ public partial class ValidSettings
         Assert.AreEqual(0, generatorWarnings.Count, $"Expected 0 IPPCLI diagnostics but found: {string.Join(", ", generatorWarnings.Select(d => d.GetMessage()))}");
         Assert.IsTrue(generatedSources.Any(s => s.HintName.Contains("ValidSettings.g.cs")), "Expected ValidSettings.g.cs to be generated.");
     }
+
+    [TestMethod]
+    public void ConsoleTreeRendererSourceGenerator_GeneratesConsoleTreeRenderer_Successfully()
+    {
+        var syntaxTree = CSharpSyntaxTree.ParseText("// empty source");
+
+        var references = new List<MetadataReference>
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Uri).Assembly.Location),
+            MetadataReference.CreateFromFile(Assembly.Load("System.Runtime").Location),
+            MetadataReference.CreateFromFile(typeof(SharpIpp.Protocol.Models.IppVersion).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(SharpIpp.Models.Responses.GetPrinterAttributesResponse).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Spectre.Console.AnsiConsole).Assembly.Location),
+        };
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "TestStaticRendererCompilation",
+            syntaxTrees: new[] { syntaxTree },
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var generator = new ConsoleTreeRendererSourceGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var generatorDiagnostics);
+
+        var runResult = driver.GetRunResult();
+        var generatedSources = runResult.Results.SelectMany(r => r.GeneratedSources).ToImmutableArray();
+
+        Assert.IsTrue(generatedSources.Any(s => s.HintName == "ConsoleTreeRenderer.g.cs"), "Expected ConsoleTreeRenderer.g.cs to be generated.");
+        var sourceText = generatedSources.First(s => s.HintName == "ConsoleTreeRenderer.g.cs").SourceText.ToString();
+        StringAssert.Contains(sourceText, "public partial class ConsoleTreeRenderer : IOutputRenderer");
+        StringAssert.Contains(sourceText, "GetPrinterAttributesResponse");
+        StringAssert.Contains(sourceText, "TryRenderStaticProperties");
+    }
 }

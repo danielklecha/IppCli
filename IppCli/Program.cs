@@ -1,5 +1,4 @@
 using IppCli.Commands;
-using SharpIpp.Exceptions;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -16,174 +15,72 @@ public static class Program
             config.SetApplicationName("ipp-cli");
             config.SetApplicationVersion(typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
 
-            config.SetExceptionHandler((ex, _) => HandleException(ex));
+            var baseArgs = BaseArguments.Parse(args);
+            config.SetExceptionHandler((ex, _) => IppCli.Extensions.AnsiConsoleExtensions.WriteException(ex, baseArgs.Output));
 
-            // ==========================================
-            // Top-Level Standard Operation Commands
-            // ==========================================
-
-            // Printer operations
-            config.AddCommand<GetPrinterAttributesCommand>("get-printer-attributes").WithDescription("Get attributes of the target printer");
-            config.AddCommand<GetPrinterSupportedValuesCommand>("get-printer-supported-values").WithDescription("Get supported values for printer attributes");
-            config.AddCommand<PausePrinterCommand>("pause-printer").WithDescription("Pause printer scheduling and processing");
-            config.AddCommand<ResumePrinterCommand>("resume-printer").WithDescription("Resume printer scheduling and processing");
-            config.AddCommand<PurgeJobsCommand>("purge-jobs").WithDescription("Purge all jobs from the printer queue");
-            config.AddCommand<IdentifyPrinterCommand>("identify-printer").WithDescription("Identify physical printer");
-            config.AddCommand<EnablePrinterCommand>("enable-printer").WithDescription("Enable printer to accept new jobs");
-            config.AddCommand<DisablePrinterCommand>("disable-printer").WithDescription("Disable printer from accepting new jobs");
             config.AddCommand<ActivatePrinterCommand>("activate-printer").WithDescription("Activate printer");
-            config.AddCommand<DeactivatePrinterCommand>("deactivate-printer").WithDescription("Deactivate printer");
-            config.AddCommand<RestartPrinterCommand>("restart-printer").WithDescription("Restart the printer");
-            config.AddCommand<ShutdownPrinterCommand>("shutdown-printer").WithDescription("Shutdown the printer");
-            config.AddCommand<StartupPrinterCommand>("startup-printer").WithDescription("Startup the printer");
-            config.AddCommand<GetUserPrinterAttributesCommand>("get-user-printer-attributes").WithDescription("Get user printer attributes");
-            config.AddCommand<CupsGetPrintersCommand>("cups-get-printers").WithDescription("Get all printers known to CUPS server");
-            config.AddCommand<SetPrinterAttributesCommand>("set-printer-attributes").WithDescription("Set printer attributes");
-
-            // Job operations
-            config.AddCommand<PrintJobCommand>("print-job").WithDescription("Submit a print job with document data");
-            config.AddCommand<CreateJobCommand>("create-job").WithDescription("Create an empty multi-document print job");
-            config.AddCommand<GetJobAttributesCommand>("get-job-attributes").WithDescription("Get attributes of a specific job");
-            config.AddCommand<GetJobsCommand>("get-jobs").WithDescription("List print jobs from the printer queue");
+            config.AddCommand<CancelCurrentJobCommand>("cancel-current-job").WithDescription("Cancel the currently printing job");
+            config.AddCommand<CancelDocumentCommand>("cancel-document").WithDescription("Cancel a document");
             config.AddCommand<CancelJobCommand>("cancel-job").WithDescription("Cancel a specific print job");
             config.AddCommand<CancelJobsCommand>("cancel-jobs").WithDescription("Cancel multiple print jobs");
             config.AddCommand<CancelMyJobsCommand>("cancel-my-jobs").WithDescription("Cancel all jobs submitted by current user");
-            config.AddCommand<CancelCurrentJobCommand>("cancel-current-job").WithDescription("Cancel the currently printing job");
-            config.AddCommand<HoldJobCommand>("hold-job").WithDescription("Hold a pending job from scheduling");
-            config.AddCommand<HoldNewJobsCommand>("hold-new-jobs").WithDescription("Hold all newly submitted jobs");
-            config.AddCommand<ReleaseJobCommand>("release-job").WithDescription("Release a previously held job");
-            config.AddCommand<ReleaseHeldNewJobsCommand>("release-held-new-jobs").WithDescription("Release all held new jobs");
-            config.AddCommand<RestartJobCommand>("restart-job").WithDescription("Restart a completed or retained job");
-            config.AddCommand<ResubmitJobCommand>("resubmit-job").WithDescription("Resubmit an existing job");
-            config.AddCommand<ValidateJobCommand>("validate-job").WithDescription("Validate if job attributes would be accepted");
+            config.AddCommand<CancelSubscriptionCommand>("cancel-subscription").WithDescription("Cancel subscription");
             config.AddCommand<CloseJobCommand>("close-job").WithDescription("Close a multi-document job");
-            config.AddCommand<PromoteJobCommand>("promote-job").WithDescription("Promote a job to the front of the queue");
-            config.AddCommand<ResumeJobCommand>("resume-job").WithDescription("Resume a previously suspended job");
-            config.AddCommand<SuspendCurrentJobCommand>("suspend-current-job").WithDescription("Suspend current printing job");
-            config.AddCommand<SetJobAttributesCommand>("set-job-attributes").WithDescription("Set settable job attributes");
-
-            // Document operations
-            config.AddCommand<SendDocumentCommand>("send-document").WithDescription("Send a document stream to a created job");
+            config.AddCommand<CreateJobCommand>("create-job").WithDescription("Create an empty multi-document print job");
+            config.AddCommand<CreateJobSubscriptionsCommand>("create-job-subscriptions").WithDescription("Create job subscriptions");
+            config.AddCommand<CreatePrinterSubscriptionsCommand>("create-printer-subscriptions").WithDescription("Create printer subscriptions");
+            config.AddCommand<CupsGetPrintersCommand>("cups-get-printers").WithDescription("Get all printers known to CUPS server");
+            config.AddCommand<DeactivatePrinterCommand>("deactivate-printer").WithDescription("Deactivate printer");
+            config.AddCommand<DisableAllPrintersCommand>("disable-all-printers").WithDescription("Disable all printers on the system");
+            config.AddCommand<DisablePrinterCommand>("disable-printer").WithDescription("Disable printer from accepting new jobs");
+            config.AddCommand<EnableAllPrintersCommand>("enable-all-printers").WithDescription("Enable all printers on the system");
+            config.AddCommand<EnablePrinterCommand>("enable-printer").WithDescription("Enable printer to accept new jobs");
             config.AddCommand<GetDocumentAttributesCommand>("get-document-attributes").WithDescription("Get document attributes");
             config.AddCommand<GetDocumentsCommand>("get-documents").WithDescription("List documents belonging to a job");
-            config.AddCommand<CancelDocumentCommand>("cancel-document").WithDescription("Cancel a document");
-            config.AddCommand<ValidateDocumentCommand>("validate-document").WithDescription("Validate document template attributes");
-            config.AddCommand<SetDocumentAttributesCommand>("set-document-attributes").WithDescription("Set document attributes");
-
-            // Subscription operations
-            config.AddCommand<CreatePrinterSubscriptionsCommand>("create-printer-subscriptions").WithDescription("Create printer subscriptions");
-            config.AddCommand<CreateJobSubscriptionsCommand>("create-job-subscriptions").WithDescription("Create job subscriptions");
-            config.AddCommand<GetSubscriptionsCommand>("get-subscriptions").WithDescription("List active subscriptions");
-            config.AddCommand<GetSubscriptionAttributesCommand>("get-subscription-attributes").WithDescription("Get subscription attributes");
-            config.AddCommand<CancelSubscriptionCommand>("cancel-subscription").WithDescription("Cancel subscription");
-            config.AddCommand<RenewSubscriptionCommand>("renew-subscription").WithDescription("Renew subscription");
+            config.AddCommand<GetJobAttributesCommand>("get-job-attributes").WithDescription("Get attributes of a specific job");
+            config.AddCommand<GetJobsCommand>("get-jobs").WithDescription("List print jobs from the printer queue");
             config.AddCommand<GetNotificationsCommand>("get-notifications").WithDescription("Get notifications for a subscription");
-
-            // System operations
+            config.AddCommand<GetPrinterAttributesCommand>("get-printer-attributes").WithDescription("Get attributes of the target printer");
+            config.AddCommand<GetPrinterSupportedValuesCommand>("get-printer-supported-values").WithDescription("Get supported values for printer attributes");
+            config.AddCommand<GetPrintersCommand>("get-printers").WithDescription("Get printers from system");
+            config.AddCommand<GetResourceAttributesCommand>("get-resource-attributes").WithDescription("Get resource attributes");
+            config.AddCommand<GetResourcesCommand>("get-resources").WithDescription("Get resources on the system");
+            config.AddCommand<GetSubscriptionAttributesCommand>("get-subscription-attributes").WithDescription("Get subscription attributes");
+            config.AddCommand<GetSubscriptionsCommand>("get-subscriptions").WithDescription("List active subscriptions");
             config.AddCommand<GetSystemAttributesCommand>("get-system-attributes").WithDescription("Get system attributes");
             config.AddCommand<GetSystemSupportedValuesCommand>("get-system-supported-values").WithDescription("Get system supported values");
-            config.AddCommand<GetPrintersCommand>("get-printers").WithDescription("Get printers from system");
+            config.AddCommand<GetUserPrinterAttributesCommand>("get-user-printer-attributes").WithDescription("Get user printer attributes");
+            config.AddCommand<HoldJobCommand>("hold-job").WithDescription("Hold a pending job from scheduling");
+            config.AddCommand<HoldNewJobsCommand>("hold-new-jobs").WithDescription("Hold all newly submitted jobs");
+            config.AddCommand<IdentifyPrinterCommand>("identify-printer").WithDescription("Identify physical printer");
             config.AddCommand<PauseAllPrintersCommand>("pause-all-printers").WithDescription("Pause all printers on the system");
-            config.AddCommand<ResumeAllPrintersCommand>("resume-all-printers").WithDescription("Resume all printers on the system");
-            config.AddCommand<EnableAllPrintersCommand>("enable-all-printers").WithDescription("Enable all printers on the system");
-            config.AddCommand<DisableAllPrintersCommand>("disable-all-printers").WithDescription("Disable all printers on the system");
-            config.AddCommand<ShutdownAllPrintersCommand>("shutdown-all-printers").WithDescription("Shutdown all printers on the system");
-            config.AddCommand<StartupAllPrintersCommand>("startup-all-printers").WithDescription("Startup all printers on the system");
+            config.AddCommand<PausePrinterCommand>("pause-printer").WithDescription("Pause printer scheduling and processing");
+            config.AddCommand<PrintJobCommand>("print-job").WithDescription("Submit a print job with document data");
+            config.AddCommand<PromoteJobCommand>("promote-job").WithDescription("Promote a job to the front of the queue");
+            config.AddCommand<PurgeJobsCommand>("purge-jobs").WithDescription("Purge all jobs from the printer queue");
+            config.AddCommand<ReleaseHeldNewJobsCommand>("release-held-new-jobs").WithDescription("Release all held new jobs");
+            config.AddCommand<ReleaseJobCommand>("release-job").WithDescription("Release a previously held job");
+            config.AddCommand<RenewSubscriptionCommand>("renew-subscription").WithDescription("Renew subscription");
+            config.AddCommand<RestartJobCommand>("restart-job").WithDescription("Restart a completed or retained job");
+            config.AddCommand<RestartPrinterCommand>("restart-printer").WithDescription("Restart the printer");
             config.AddCommand<RestartSystemCommand>("restart-system").WithDescription("Restart the IPP system");
-            config.AddCommand<GetResourcesCommand>("get-resources").WithDescription("Get resources on the system");
-            config.AddCommand<GetResourceAttributesCommand>("get-resource-attributes").WithDescription("Get resource attributes");
+            config.AddCommand<ResubmitJobCommand>("resubmit-job").WithDescription("Resubmit an existing job");
+            config.AddCommand<ResumeAllPrintersCommand>("resume-all-printers").WithDescription("Resume all printers on the system");
+            config.AddCommand<ResumeJobCommand>("resume-job").WithDescription("Resume a previously suspended job");
+            config.AddCommand<ResumePrinterCommand>("resume-printer").WithDescription("Resume printer scheduling and processing");
+            config.AddCommand<SendDocumentCommand>("send-document").WithDescription("Send a document stream to a created job");
+            config.AddCommand<SetDocumentAttributesCommand>("set-document-attributes").WithDescription("Set document attributes");
+            config.AddCommand<SetJobAttributesCommand>("set-job-attributes").WithDescription("Set settable job attributes");
+            config.AddCommand<SetPrinterAttributesCommand>("set-printer-attributes").WithDescription("Set printer attributes");
+            config.AddCommand<ShutdownAllPrintersCommand>("shutdown-all-printers").WithDescription("Shutdown all printers on the system");
+            config.AddCommand<ShutdownPrinterCommand>("shutdown-printer").WithDescription("Shutdown the printer");
+            config.AddCommand<StartupAllPrintersCommand>("startup-all-printers").WithDescription("Startup all printers on the system");
+            config.AddCommand<StartupPrinterCommand>("startup-printer").WithDescription("Startup the printer");
+            config.AddCommand<SuspendCurrentJobCommand>("suspend-current-job").WithDescription("Suspend current printing job");
+            config.AddCommand<ValidateDocumentCommand>("validate-document").WithDescription("Validate document template attributes");
+            config.AddCommand<ValidateJobCommand>("validate-job").WithDescription("Validate if job attributes would be accepted");
         });
 
         return await app.RunAsync(args);
-    }
-
-    internal static void HandleException(Exception ex, IAnsiConsole? console = null)
-    {
-        console ??= AnsiConsole.Create(new AnsiConsoleSettings
-        {
-            Out = new AnsiConsoleOutput(Console.Error)
-        });
-
-        if (ex is AggregateException agg)
-        {
-            var flattened = agg.Flatten();
-            if (flattened.InnerExceptions.Count == 1)
-            {
-                RenderSingleException(flattened.InnerExceptions[0], console);
-            }
-            else
-            {
-                console.MarkupLine($"[bold red]Error[/] [dim red](AggregateException):[/] [red]{Markup.Escape(agg.Message)}[/]");
-                foreach (var innerAgg in flattened.InnerExceptions)
-                {
-                    console.MarkupLine($"  [dim red]• ({Markup.Escape(innerAgg.GetType().Name)}):[/] [red]{Markup.Escape(innerAgg.Message)}[/]");
-                    if (innerAgg is IppResponseException { ResponseMessage: not null } ippRespEx)
-                    {
-                        ConsoleTreeRenderer.Render(ippRespEx.ResponseMessage, "ResponseMessage", null, console);
-                    }
-                }
-                RenderHints(flattened.InnerExceptions.FirstOrDefault() ?? ex, console);
-            }
-        }
-        else
-        {
-            RenderSingleException(ex, console);
-        }
-
-        if (string.Equals(Environment.GetEnvironmentVariable("IPP_CLI_DEBUG"), "1", StringComparison.OrdinalIgnoreCase))
-        {
-            console.WriteLine();
-            console.WriteException(ex, ExceptionFormats.ShortenEverything);
-        }
-    }
-
-    private static void RenderSingleException(Exception ex, IAnsiConsole console)
-    {
-        console.MarkupLine($"[bold red]Error[/] [dim red]({Markup.Escape(ex.GetType().Name)}):[/] [red]{Markup.Escape(ex.Message)}[/]");
-
-        if (ex is IppResponseException { ResponseMessage: not null } ippEx)
-        {
-            ConsoleTreeRenderer.Render(ippEx.ResponseMessage, "ResponseMessage", null, console);
-        }
-
-        var inner = ex.InnerException;
-        while (inner != null)
-        {
-            console.MarkupLine($"  [dim]Caused by ({Markup.Escape(inner.GetType().Name)}):[/] [dim red]{Markup.Escape(inner.Message)}[/]");
-            if (inner is IppResponseException { ResponseMessage: not null } innerIppEx)
-            {
-                ConsoleTreeRenderer.Render(innerIppEx.ResponseMessage, "ResponseMessage", null, console);
-            }
-            inner = inner.InnerException;
-        }
-
-        RenderHints(ex, console);
-    }
-
-    private static void RenderHints(Exception ex, IAnsiConsole console)
-    {
-        bool isSslError = ex is HttpRequestException { InnerException: System.Security.Authentication.AuthenticationException }
-            || ex.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase)
-            || (ex.InnerException != null && ex.InnerException.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase));
-
-        if (isSslError)
-        {
-            console.MarkupLine("[dim yellow]Hint: If the printer uses a self-signed certificate, retry with [bold]-k[/] or [bold]--insecure[/].[/]");
-            return;
-        }
-
-        if (ex is TaskCanceledException or TimeoutException)
-        {
-            console.MarkupLine("[dim yellow]Hint: The request timed out. You can increase the timeout with [bold]-t <seconds>[/] or [bold]--timeout <seconds>[/].[/]");
-            return;
-        }
-
-        bool isSocketError = ex is System.Net.Sockets.SocketException
-            || ex.InnerException is System.Net.Sockets.SocketException;
-
-        if (isSocketError)
-        {
-            console.MarkupLine("[dim yellow]Hint: Check that the printer URI and port are correct and that the IPP service is reachable.[/]");
-        }
     }
 }

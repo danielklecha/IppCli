@@ -43,6 +43,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="IppCli.Extensions" />
     <Using Include="IppCli.Models" />
     <Using Include="IppCli.Services" />
   </ItemGroup>

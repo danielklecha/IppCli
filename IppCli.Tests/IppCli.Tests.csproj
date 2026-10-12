@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+    <Using Include="IppCli.Extensions" />
     <Using Include="IppCli.Models" />
     <Using Include="IppCli.Services" />
     <Using Include="Spectre.Console.Testing" />
