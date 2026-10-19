@@ -4,7 +4,7 @@
 [![NuGet downloads](https://img.shields.io/nuget/dt/IppCli.svg)](https://www.nuget.org/packages/IppCli)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/danielklecha/SharpIppNext/blob/master/LICENSE.txt)
 
-<img src="icon.png" alt="IppCli Logo" width="128" height="128" />
+<img src="icon128.png" alt="IppCli Logo" width="128" height="128" />
 
 **IppCli** is a cross-platform command-line tool for interacting with Internet Printing Protocol (IPP) printers, print servers (e.g. CUPS), and IPP System Services. Built on .NET 10 with [SharpIppNext](https://github.com/danielklecha/SharpIppNext) and [Spectre.Console](https://spectreconsole.net/).
 
