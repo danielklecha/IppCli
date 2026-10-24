@@ -18,7 +18,7 @@ public class SettingsTests
         Assert.AreEqual(30, settings.TimeoutSeconds);
         Assert.IsFalse(settings.IgnoreSslErrors);
         Assert.IsNotNull(settings.Request.OperationAttributes);
-        Assert.AreEqual(Environment.UserName, settings.Request.OperationAttributes.RequestingUserName);
+        Assert.AreEqual(Environment.UserName, settings.Request.OperationAttributes.RequestingUserName?.ToString());
     }
 
     [TestMethod]

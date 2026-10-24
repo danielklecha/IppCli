@@ -326,12 +326,12 @@ public class ExceptionHandlerTests
     public void WriteException_ThrowsArgumentNullException_WhenArgumentsNull()
     {
         var testConsole = new TestConsole();
-        Assert.ThrowsException<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteException(new Exception()));
-        Assert.ThrowsException<ArgumentNullException>(() => testConsole.WriteException(null!));
-        Assert.ThrowsException<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteHints(new Exception()));
-        Assert.ThrowsException<ArgumentNullException>(() => testConsole.WriteHints(null!));
-        Assert.ThrowsException<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteExceptions(new[] { new Exception() }));
-        Assert.ThrowsException<ArgumentNullException>(() => testConsole.WriteExceptions((IEnumerable<Exception>)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteException(new Exception()));
+        Assert.ThrowsExactly<ArgumentNullException>(() => testConsole.WriteException(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteHints(new Exception()));
+        Assert.ThrowsExactly<ArgumentNullException>(() => testConsole.WriteHints(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ((Spectre.Console.IAnsiConsole)null!).WriteExceptions(new[] { new Exception() }));
+        Assert.ThrowsExactly<ArgumentNullException>(() => testConsole.WriteExceptions((IEnumerable<Exception>)null!));
     }
 
     [TestMethod]

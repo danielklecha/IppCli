@@ -127,7 +127,7 @@ public class IppJsonHelperTests
     [TestMethod]
     public void FileReference_NonExistentFile_ThrowsFileNotFoundExceptionWithResolvedPath()
     {
-        var ex = Assert.ThrowsException<FileNotFoundException>(() =>
+        var ex = Assert.ThrowsExactly<FileNotFoundException>(() =>
             IppJsonHelper.Deserialize<SharpIpp.Protocol.Models.JobTemplateAttributes>("@non_existent_attributes_file.json"));
 
         StringAssert.Contains(ex.Message, "non_existent_attributes_file.json");
